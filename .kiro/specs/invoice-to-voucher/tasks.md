@@ -14,67 +14,81 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 ### Phase 1: Project Scaffold and Infrastructure
 
-- [ ] 1. Initialize monorepo structure and tooling
+- [x] 1. Initialize monorepo structure and tooling
   - Create `backend/` (Python 3.12+ with FastAPI) and `frontend/` (React + TypeScript + Vite) project skeletons
-  - Create `backend/pyproject.toml` with all runtime and dev dependencies: `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic[email]`, `pydantic-settings`, `pyjwt`, `boto3`, `rq`, `redis`, `weasyprint` (or `reportlab`), `pytest`, `pytest-asyncio`, `hypothesis`, `httpx`, `moto`, `ruff` — all with pinned versions
+  - Create `backend/pyproject.toml` with all runtime and dev dependencies: `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic[email]`, `pydantic-settings`, `pyjwt`, `boto3`, `rq`, `redis`, `weasyprint` (or `reportlab`), `jinja2==3.1.4`, `pytest`, `pytest-asyncio`, `hypothesis`, `httpx`, `moto`, `ruff` — all with pinned versions; add `jinja2==3.1.4` to both `requirements.txt` and `requirements-dev.txt` (must be explicit even if a transitive dep of moto)
   - Configure `ruff` for linting and formatting in `pyproject.toml` (`[tool.ruff]` section)
   - Install PostgreSQL 16+ and Redis 7+ natively on your machine (e.g. `brew install postgresql@16 redis`); create the `amiga_db` database and start both services
   - Populate `backend/.env` with all environment variables from the design: `DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_SECONDS`, `EXTRACTION_PROVIDER`, `BEDROCK_MODEL_ID`, `CALCULATION_TOLERANCE`, `AUTHORIZATION_DISCLAIMER`
   - Create `frontend/` React + TypeScript + Vite skeleton with `package.json`
   - _Requirements: foundational for all_
 
-- [ ] 2. Define and apply the database schema
-  - [ ] 2.1 Write Alembic migration files for all 12 entities: `Client`, `User`, `ClientAssignment`, `Request`, `Draft`, `HeaderFields`, `LineItem`, `PaymentDetails`, `FieldRevision`, `AuditEvent`, `VoucherPDF`, `TelemetryRecord`
+- [x] 2. Define and apply the database schema
+  - [x] 2.1 Write Alembic migration files for all 12 entities: `Client`, `User`, `ClientAssignment`, `Request`, `Draft`, `HeaderFields`, `LineItem`, `PaymentDetails`, `FieldRevision`, `AuditEvent`, `VoucherPDF`, `TelemetryRecord`
     - Include all columns, types, constraints, and foreign keys exactly as specified in the Data Models section of the design
     - Use `NUMERIC(18,4)` for all financial columns (`subtotal`, `total_amount`, `tax_amount`, `fee_amount`, `rounding_adj`, `unit_price`, `line_total`, `quantity`)
     - Add `INSERT`-only database role grants for `AuditEvent` and `FieldRevision` tables; add DDL triggers that raise an error on `UPDATE` or `DELETE` for those tables
     - _Requirements: 2.1, 11.1, 17.1_
+  - [x] 2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version`, `template_hash` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) and all foreign key constraints
+    - _Requirements: 1.9, 21.1, 22.2, 22.8_
   - [ ]* 2.2 Write pytest tests for schema constraints (unique username, immutable `request_id`, audit-table trigger rejects `UPDATE`/`DELETE`)
     - _Requirements: 2.1, 11.1_
+  - [x] 2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version VARCHAR(100)` and `template_hash CHAR(64)` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) with its hardcoded rate mapping and all foreign key constraints; ensure exactly one `VoucherTemplate` row can be `is_active=TRUE` at a time
+    - _Requirements: 1.9, 21.1, 22.2, 22.8_
 
-- [ ] 3. Configure file storage and message queue clients
-  - [ ] 3.1 Implement `app/storage.py`: `S3FileStore` class using the `boto3` S3 client (standard AWS regional endpoint — no custom endpoint override); expose `async upload(key: str, data: bytes, content_type: str) -> None` and `async download(key: str) -> bytes` methods; read bucket and region from `Pydantic Settings` (`S3_BUCKET`, `AWS_REGION`); credentials resolved from the AWS credential provider chain (env vars, IAM role, or `~/.aws/credentials`)
+- [x] 3. Configure file storage and message queue clients
+  - [x] 3.1 Implement `app/storage.py`: `S3FileStore` class using the `boto3` S3 client (standard AWS regional endpoint — no custom endpoint override); expose `async upload(key: str, data: bytes, content_type: str) -> None` and `async download(key: str) -> bytes` methods; read bucket and region from `Pydantic Settings` (`S3_BUCKET`, `AWS_REGION`); credentials resolved from the AWS credential provider chain (env vars, IAM role, or `~/.aws/credentials`)
     - _Requirements: 1.1, 15.1_
-  - [ ] 3.2 Implement `app/queue.py`: `get_redis_connection() -> Redis` and `get_extraction_queue() -> Queue` helpers using `rq`'s built-in `Queue` class; queue name: `amiga-extraction`
+  - [x] 3.2 Implement `app/queue.py`: `get_redis_connection() -> Redis` and `get_extraction_queue() -> Queue` helpers using `rq`'s built-in `Queue` class; queue name: `amiga-extraction`
     - _Requirements: 4.1_
+  - [x] 3.4 Create `backend/app/templates/voucher_default.html`: the default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); styled with inline CSS; `{{line_items_table}}` iterates over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` iterates over a list of dicts with keys `tax_type`, `subtotal`
+    - _Requirements: 22.1, 22.3, 22.5_
+  - [x] 3.5 Create `app/services/template_service.py`: `load_active_template(db) -> VoucherTemplate`; `seed_default_template(db)` — reads `app/templates/voucher_default.html` and inserts it as `version="v1.0"` with `is_active=True` if no active template exists; add a `POST /admin/templates` endpoint (System Admin only) to upload a new template version and set it as active, deactivating the previous one
+    - _Requirements: 22.1, 22.2_
   - [ ]* 3.3 Write pytest tests for `S3FileStore` (using `moto` to mock the boto3 S3 client) and for the RQ queue helpers (using a fakeredis or mocked Redis connection)
     - _Requirements: 1.1, 4.1_
 
-- [ ] 4. Checkpoint — Ensure Alembic migrations run cleanly against the local native PostgreSQL instance and all Phase 1 tests pass. Ask the user if any questions arise.
+- [x] 3.4 Create `backend/app/templates/voucher_default.html`: default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); `{{line_items_table}}` loops over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` loops over a list of dicts with keys `tax_type`, `subtotal`; styled with inline CSS for clean PDF rendering via WeasyPrint
+  - _Requirements: 22.1, 22.3, 22.5_
+
+- [x] 3.5 Create `app/services/template_service.py`: `load_active_template(db: AsyncSession) -> VoucherTemplate` that queries the single `is_active=True` row and raises if none found; `seed_default_template(db)` that reads `app/templates/voucher_default.html` and inserts it as `version="v1.0"` with `is_active=True` if no active template exists (idempotent); add `POST /admin/templates` FastAPI endpoint (System Admin only) to upload a new Jinja2 template version (validated to contain all required placeholders), set it as `is_active=True`, and deactivate the previous active template in the same transaction
+  - _Requirements: 22.1, 22.2_
+
+- [x] 4. Checkpoint — Ensure Alembic migrations run cleanly against the local native PostgreSQL instance and all Phase 1 tests pass. Ask the user if any questions arise.
 
 ---
 
 ### Phase 2: User Management and Authentication
 
-- [ ] 5. Implement User & Auth Service — data layer
-  - [ ] 5.1 Create `app/repositories/user_repository.py`: async SQLAlchemy methods `find_by_username(username) -> User | None`, `create_user(data) -> User`, `update_role(user_id, role) -> User`, `add_assignment(user_id, client_id) -> ClientAssignment`, `revoke_assignment(user_id, client_id) -> None`, `is_assignment_active(user_id, client_id) -> bool`; all queries use parameterized SQLAlchemy expressions (no raw string interpolation)
+- [x] 5. Implement User & Auth Service — data layer
+  - [x] 5.1 Create `app/repositories/user_repository.py`: async SQLAlchemy methods `find_by_username(username) -> User | None`, `create_user(data) -> User`, `update_role(user_id, role) -> User`, `add_assignment(user_id, client_id) -> ClientAssignment`, `revoke_assignment(user_id, client_id) -> None`, `is_assignment_active(user_id, client_id) -> bool`; all queries use parameterized SQLAlchemy expressions (no raw string interpolation)
     - _Requirements: 19.1, 19.2, 18.1, 18.3_
   - [ ]* 5.2 Write pytest tests for `UserRepository` covering: duplicate username rejection, missing required field rejection, role modification, assignment revocation, `is_assignment_active` returns `False` after revocation
     - _Requirements: 19.6, 19.7, 19.2_
 
-- [ ] 6. Implement JWT authentication
-  - [ ] 6.1 Implement `app/auth.py`: `create_access_token(user_id: UUID, role: str) -> str` using `PyJWT` (`jwt.encode`) with `HS256` algorithm, embedding `user_id` and `role` claims plus `exp`; `decode_token(token: str) -> dict` using `jwt.decode` — raises `HTTPException(status_code=401)` on invalid signature, expired token, or missing claims
+- [x] 6. Implement JWT authentication
+  - [x] 6.1 Implement `app/auth.py`: `create_access_token(user_id: UUID, role: str) -> str` using `PyJWT` (`jwt.encode`) with `HS256` algorithm, embedding `user_id` and `role` claims plus `exp`; `decode_token(token: str) -> dict` using `jwt.decode` — raises `HTTPException(status_code=401)` on invalid signature, expired token, or missing claims
     - _Requirements: 18.1, 18.2_
-  - [ ] 6.2 Implement `app/dependencies.py`: `get_db` async session dependency yielding an `AsyncSession`; `get_current_user` FastAPI dependency using `Depends(OAuth2PasswordBearer)` + `decode_token` — on failure raises `HTTPException(401)`; on success returns the `User` ORM object loaded from DB
+  - [x] 6.2 Implement `app/dependencies.py`: `get_db` async session dependency yielding an `AsyncSession`; `get_current_user` FastAPI dependency using `Depends(OAuth2PasswordBearer)` + `decode_token` — on failure raises `HTTPException(401)`; on success returns the `User` ORM object loaded from DB
     - _Requirements: 18.1_
   - [ ]* 6.3 Write pytest tests for `create_access_token` / `decode_token` (valid token, expired token, tampered signature) and for `get_current_user` dependency (missing header, invalid token, valid token returns correct user)
     - _Requirements: 18.1_
 
-- [ ] 7. Implement authorization dependencies (role + client assignment)
-  - [ ] 7.1 Implement `require_role(*roles: str)` FastAPI dependency factory in `app/dependencies.py`: raises `HTTPException(status_code=403, detail="You do not have authority to perform this action.")` if `current_user.role` is not in the allowed set
+- [x] 7. Implement authorization dependencies (role + client assignment)
+  - [x] 7.1 Implement `require_role(*roles: str)` FastAPI dependency factory in `app/dependencies.py`: raises `HTTPException(status_code=403, detail="You do not have authority to perform this action.")` if `current_user.role` is not in the allowed set
     - _Requirements: 12.3, 13.1, 18.2_
-  - [ ] 7.2 Implement `require_client_assignment(request_id: UUID)` FastAPI dependency: calls `UserRepository.is_assignment_active(current_user.user_id, client_id)` via a direct DB lookup on every request (no caching); raises `HTTPException(status_code=403, detail="You are not authorized to access Requests for this client.")` with no client data in the response body if the assignment is inactive or absent
+  - [x] 7.2 Implement `require_client_assignment(request_id: UUID)` FastAPI dependency: calls `UserRepository.is_assignment_active(current_user.user_id, client_id)` via a direct DB lookup on every request (no caching); raises `HTTPException(status_code=403, detail="You are not authorized to access Requests for this client.")` with no client data in the response body if the assignment is inactive or absent
     - _Requirements: 18.1, 18.2, 18.3, 18.4_
   - [ ]* 7.3 Write Hypothesis property test for **Property 16** (client isolation): for any combination of `(has_role, has_active_assignment, operation_type)`, verify access is granted only when both conditions are true; revoked assignments are denied on the very next request without re-auth
     - **Property 16: Client Isolation**
     - **Validates: Requirements 18.1, 18.2, 18.3, 18.4**
 
-- [ ] 8. Implement User & Auth Service — HTTP routes
-  - [ ] 8.1 Implement `POST /users` FastAPI router (System Admin only via `Depends(require_role("SYSTEM_ADMIN"))`): validate required fields (username, role, at least one `ClientAssignment`) using a Pydantic v2 request schema; reject duplicate usernames with `HTTPException(409)`; reject `SYSTEM_ADMIN` accounts from holding approval authority with `HTTPException(422)`; create user and return `201` within 5 seconds
+- [x] 8. Implement User & Auth Service — HTTP routes
+  - [x] 8.1 Implement `POST /users` FastAPI router (System Admin only via `Depends(require_role("SYSTEM_ADMIN"))`): validate required fields (username, role, at least one `ClientAssignment`) using a Pydantic v2 request schema; reject duplicate usernames with `HTTPException(409)`; reject `SYSTEM_ADMIN` accounts from holding approval authority with `HTTPException(422)`; create user and return `201` within 5 seconds
     - _Requirements: 19.1, 19.3, 19.6, 19.7_
-  - [ ] 8.2 Implement `PATCH /users/{id}/role` and `POST`/`DELETE /users/{id}/assignments` FastAPI routers (System Admin only): apply changes within 5 seconds; write a `USER_MODIFIED` event to the system audit log
+  - [x] 8.2 Implement `PATCH /users/{id}/role` and `POST`/`DELETE /users/{id}/assignments` FastAPI routers (System Admin only): apply changes within 5 seconds; write a `USER_MODIFIED` event to the system audit log
     - _Requirements: 19.2, 19.5_
-  - [ ] 8.3 Implement `GET /users/{id}` FastAPI router (System Admin only)
+  - [x] 8.3 Implement `GET /users/{id}` FastAPI router (System Admin only)
     - _Requirements: 19.1_
   - [ ]* 8.4 Write pytest tests for user management routes: missing fields, duplicate username, System_Admin approval-authority rejection, assignment revocation propagates immediately
     - _Requirements: 19.1, 19.3, 19.6, 19.7_
@@ -88,10 +102,10 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 ### Phase 3: Invoice Intake
 
-- [ ] 10. Implement Request Service — data layer
-  - [ ] 10.1 Create `app/repositories/request_repository.py`: async SQLAlchemy methods `create_request(data) -> Request`, `get_by_id(request_id) -> Request | None`, `list_for_user(user_id, role, client_ids, statuses) -> list[Request]`, `update_status(request_id, new_status) -> Request`, `apply_flag(request_id, flag) -> None`, `remove_flag(request_id, flag) -> None`, `set_assigned_reviewer(request_id, reviewer_id) -> None`; all queries use parameterized SQLAlchemy expressions
+- [x] 10. Implement Request Service — data layer
+  - [x] 10.1 Create `app/repositories/request_repository.py`: async SQLAlchemy methods `create_request(data) -> Request`, `get_by_id(request_id) -> Request | None`, `list_for_user(user_id, role, client_ids, statuses) -> list[Request]`, `update_status(request_id, new_status) -> Request`, `apply_flag(request_id, flag) -> None`, `remove_flag(request_id, flag) -> None`, `set_assigned_reviewer(request_id, reviewer_id) -> None`; all queries use parameterized SQLAlchemy expressions
     - _Requirements: 1.1, 2.1, 3.1, 12.1_
-  - [ ] 10.2 Implement `RequestIdGenerator` in `app/services/request_service.py`: generate a `uuid.uuid4()`; on collision (checked against DB) retry up to 5 times; after 5 failures raise `RequestIdGenerationError`; assign and persist within 3 seconds
+  - [x] 10.2 Implement `RequestIdGenerator` in `app/services/request_service.py`: generate a `uuid.uuid4()`; on collision (checked against DB) retry up to 5 times; after 5 failures raise `RequestIdGenerationError`; assign and persist within 3 seconds
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
   - [ ]* 10.3 Write pytest tests for `RequestIdGenerator`: single-attempt success, collision on first attempt then success, five consecutive collisions then `RequestIdGenerationError`
     - _Requirements: 2.3_
@@ -99,9 +113,9 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 4: Unique Request IDs**
     - **Validates: Requirements 2.1**
 
-- [ ] 11. Implement invoice upload endpoint
-  - [ ] 11.1 Implement `POST /requests` FastAPI router with `UploadFile` + `Form` fields: validate MIME type is `application/pdf` and size ≤ 20 MB — reject with `415` naming the received format or `413` for size; validate all required metadata fields (`client_name`, `request_type`, `channel`, `request_date`) via a Pydantic v2 schema — reject with `422` naming each missing field; if `role == INTAKE_SUPPORT` verify active `ClientAssignment` — reject with `403` if absent; on success upload to `S3FileStore`, call `RequestIdGenerator`, persist the `Request` with status `QUEUED`, write a `REQUEST_CREATED` `AuditEvent` (uploader `user_id` + UTC timestamp), and return `201` with the `request_id`
-    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 2.1, 2.4_
+- [x] 11. Implement invoice upload endpoint
+  - [x] 11.1 Implement `POST /requests` FastAPI multipart endpoint: accept one or more files (`List[UploadFile]`) plus form metadata (`client_id`, `request_type`, `channel`, `request_date`); validate all files are PDF, PNG, JPG, or JPEG and each is ≤ 20 MB — reject the entire Upload_Session on any violation naming the offending file; validate metadata fields — reject with `422` naming missing fields; if `role == INTAKE_SUPPORT` verify active `ClientAssignment`; on success: generate `request_id`, store all files to S3 under `evidence/{request_id}/{upload_order}_{filename}`, persist one `EvidenceFile` row per file, create the `Request` in QUEUED status, write a `REQUEST_CREATED` `AuditEvent` including all file names and formats, and return `201` with `request_id` and the list of stored `evidence_id`s
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.1, 2.4_
   - [ ]* 11.2 Write pytest tests for the upload endpoint: non-PDF rejected with format name in error, oversized file rejected, missing metadata field named in error, Intake_Support without assignment rejected, valid upload returns 201 with `request_id`
     - _Requirements: 1.2, 1.3, 1.6, 1.7_
   - [ ]* 11.3 Write Hypothesis property test for **Property 1** (valid uploads create QUEUED requests with uploader identity): for any valid upload by a `Client_PIC` or `Intake_Support` with active assignment, the system SHALL create a Request in `QUEUED` status and the `AuditTrail` SHALL contain `REQUEST_CREATED` with the uploader's account identifier and a non-null UTC timestamp
@@ -180,6 +194,30 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 ---
 
+### Phase 5.5: Indonesian Tax Assignment
+
+- [ ] 50. Implement tax assignment model and calculation engine
+  - [ ] 50.1 Create `app/models/tax_assignment.py`: `IndonesianTaxType` Python `enum.Enum` with values `PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`; `TAX_RATES: dict[IndonesianTaxType, Decimal]` with values `{PPH21: Decimal("0.0500"), PPH22: Decimal("0.0150"), PPH23: Decimal("0.0200"), PPH25: Decimal("0.0200"), PPN: Decimal("0.1100"), NO_TAX: Decimal("0.0000")}`; `TaxAssignment` SQLAlchemy model with `unique` constraint on `line_item_id` (one assignment per item)
+    - _Requirements: 21.1, 21.2_
+  - [ ] 50.2 Create `app/services/tax_service.py`: `compute_tax_amount(line_total: Decimal, tax_type: IndonesianTaxType) -> Decimal` using only `Decimal` multiplication (no `float`); `compute_tax_summary(tax_assignments: list[TaxAssignment], line_items: list[LineItem]) -> dict` returning `{"per_type": {tax_type: subtotal}, "total_tax": Decimal, "grand_total": Decimal}` where `grand_total = subtotal + total_tax`
+    - _Requirements: 21.2, 21.3, 21.4_
+  - [ ] 50.3 Implement `PUT /requests/{id}/line-items/{line_item_id}/tax` FastAPI endpoint (Finance Reviewer + active ClientAssignment, Request must be in `READY_FOR_REVIEW` or `EXCEPTION` status): accept `{ tax_type: str }`; validate `tax_type` is a valid `IndonesianTaxType`; compute `tax_amount = compute_tax_amount(Decimal(str(line_item.line_total)), tax_type)`; upsert the `TaxAssignment` row; write a `FIELD_REVISED` AuditEvent recording old and new tax type and computed amount; return `{ line_item_id, tax_type, tax_rate, tax_amount }` — reject with `409` if Request is `AMIGA_REVIEWED` or later (locked)
+    - _Requirements: 21.1, 21.3, 21.5, 21.7_
+  - [ ] 50.4 Implement `GET /requests/{id}/tax-summary` FastAPI endpoint (Finance Reviewer + active ClientAssignment): return `{ line_items: [{..., tax_type, tax_rate, tax_amount}], per_type_subtotals: {type: subtotal}, total_tax, grand_total }` computed via `tax_service.compute_tax_summary`; if Request is `AMIGA_REVIEWED` or later, mark as `locked: true` in the response
+    - _Requirements: 21.4, 21.6, 21.7_
+  - [ ]* 50.5 Write pytest unit tests for `tax_service`: for each of the 6 tax types verify `compute_tax_amount` returns exact `Decimal` result; verify `float` is never used; verify `compute_tax_summary` grand_total equals sum of per-type subtotals; verify a line_item with no assignment contributes 0 tax
+    - _Requirements: 21.2, 21.3_
+
+- [ ] 51. Build `TaxAssignmentPanel` React component
+  - [ ] 51.1 For each extracted `LineItem` in the review workspace, render a dropdown selector with options: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), No Tax; display the computed tax amount next to each selector, updating on selection via `PUT /requests/{id}/line-items/{lid}/tax`
+    - _Requirements: 21.1, 21.3_
+  - [ ] 51.2 Render a live tax summary section below the line items table: per-type subtotals and grand total fetched from `GET /requests/{id}/tax-summary`; disable all selectors if Request is locked (`AMIGA_REVIEWED` or later)
+    - _Requirements: 21.4, 21.6, 21.7_
+
+- [ ] 52. Checkpoint — Assign tax types to all line items in a `READY_FOR_REVIEW` request; verify computed tax amounts, per-type subtotals, grand total, AuditEvents, and that selectors are disabled after approval. Ask the user if any questions arise.
+
+---
+
 ### Phase 6: Review Workspace and Corrections
 
 - [ ] 22. Implement draft field update endpoint
@@ -236,8 +274,8 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 ### Phase 8: Voucher Generation and Handover
 
 - [ ] 28. Implement Voucher Service — generation
-  - [ ] 28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED` — reject with error if not; assemble all approved `HeaderFields`, `LineItems`, and `PaymentDetails`; inject the `AUTHORIZATION_DISCLAIMER` from `Pydantic Settings`; render to PDF using WeasyPrint or reportlab; upload PDF bytes to `S3FileStore`; persist a `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, and `disclaimer_hash` (SHA-256 of the disclaimer text via `hashlib.sha256`); write a `VOUCHER_GENERATED` `AuditEvent`; return `200` with `voucher_pdf_id` and a signed download URL; record generation duration in `TelemetryRecord` (`metric_type = PDF_GENERATION_DURATION`); if generation fails, return `HTTPException(500)` and do NOT write any `AuditEvent` or transition status
-    - _Requirements: 15.1, 15.2, 15.4, 15.5, 15.6, 20.3, 20.6_
+  - [ ] 28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; load the active `VoucherTemplate` via `template_service.load_active_template(db)`; build Jinja2 context from approved `HeaderFields`, `LineItems` (with their `TaxAssignment` rows), `PaymentDetails`, `tax_service.compute_tax_summary()` result, and `settings.AUTHORIZATION_DISCLAIMER`; render HTML using `jinja2.Environment(loader=BaseLoader()).from_string(template.template_content).render(context)`; convert to PDF using `weasyprint.HTML(string=rendered_html).write_pdf()`; compute `disclaimer_hash = sha256(disclaimer_text.encode()).hexdigest()` and `template_hash = sha256(rendered_html.encode()).hexdigest()`; upload PDF bytes to S3 at `vouchers/{request_id}/{voucher_pdf_id}.pdf`; persist `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, `template_version`, `disclaimer_hash`, `template_hash`; write `VOUCHER_GENERATED` AuditEvent; record generation duration in `TelemetryRecord`; SLA is **5 seconds** (updated from 3s); if generation fails return `HTTPException(500)` and do NOT write AuditEvent or transition status
+    - _Requirements: 15.1, 15.2, 15.4, 15.5, 15.6, 21.6, 22.3, 22.4, 22.5, 22.7, 22.8, 20.3, 20.6_
   - [ ] 28.2 Enforce status guard: if `request.status != AMIGA_REVIEWED`, return error stating the Request has not completed independent review
     - _Requirements: 15.3_
   - [ ]* 28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output
@@ -409,7 +447,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 - [ ] 48. Write performance tests
   - [ ]* 48.1 Write a locust or pytest-benchmark performance test that seeds 500 Requests for a single client and measures `GET /requests` response time; assert p95 ≤ 2 000 ms
     - _Requirements: 3.5_
-  - [ ]* 48.2 Write a locust or pytest-benchmark performance test that measures Voucher PDF generation time end-to-end; assert p95 ≤ 3 000 ms
+  - [ ]* 48.2 Write a locust or pytest-benchmark performance test that measures Voucher PDF generation time end-to-end (Jinja2 render + WeasyPrint conversion + S3 upload); assert p95 ≤ 5 000 ms
     - _Requirements: 15.1_
 
 - [ ] 49. Final checkpoint — Run the full test suite (`pytest backend/`, `pytest backend/tests/pbt/`, integration tests, performance tests); all required tasks pass. Review any remaining optional tasks with the user and decide whether to include them in the MVP. Ask the user if any questions arise.
@@ -424,15 +462,16 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 - Web framework: **FastAPI** with `Depends()` for auth, role checks, and client assignment enforcement — replaces Express middleware.
 - Background worker: **RQ** (`rq worker amiga-extraction`); `extract_invoice` job in `worker/jobs/extraction.py`; retries 3 times with exponential backoff (30s, 60s, 120s).
 - Database ORM: **SQLAlchemy 2.x async** with **Alembic** migrations — replaces Knex/Prisma.
-- PDF generation (backend): **WeasyPrint** or **reportlab** — replaces puppeteer / `@react-pdf/renderer`.
-- File storage: **boto3** S3 client connecting to real AWS S3 in all environments. Use a dedicated development bucket (e.g. `bedrock-kb-student1-1791858842`). In AWS-hosted environments, attach an IAM role — never hardcode `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in source code. For the test suite, S3 calls are mocked with `moto`.
+- PDF generation (backend): **Jinja2** renders the active `VoucherTemplate` HTML; **WeasyPrint** converts to PDF. Template stored in `VoucherTemplate` DB table, seeded from `app/templates/voucher_default.html`. Template version, `template_hash` (SHA-256 of rendered HTML), and `disclaimer_hash` (SHA-256 of disclaimer text) are recorded in `VoucherPDF` for auditability.
+- File storage: **boto3** S3 client connecting to real AWS S3 in all environments. EvidenceFiles stored at `evidence/{request_id}/{order}_{filename}`; VoucherPDFs stored at `vouchers/{request_id}/{voucher_pdf_id}.pdf`. Use a dedicated development bucket. In AWS-hosted environments, attach an IAM role — never hardcode credentials. For the test suite, S3 calls are mocked with `moto`.
+- Indonesian tax calculation: Use `app/services/tax_service.py` with Python `Decimal` for all tax arithmetic. NEVER use `float`. Hardcoded rates: PPH21=5%, PPH22=1.5%, PPH23=2%, PPH25=2%, PPN=11%, NO_TAX=0%. Rates are constants in code — not configurable at runtime. Grand total = sum(line_totals) + sum(tax_amounts).
 - Bedrock provider: **boto3** `bedrock-runtime` client; model selected via `BEDROCK_MODEL_ID` env var; credentials from AWS credential provider chain.
 - The `AuditEvent` and `FieldRevision` tables must have `INSERT`-only application grants and DDL triggers blocking `UPDATE` and `DELETE` — enforced at the database layer, not just the application layer.
 - `ClientAssignment.is_active` is checked on every request via a direct async SQLAlchemy DB lookup. Do not cache assignment status.
 - The `CALCULATION_TOLERANCE` value is loaded from the `CALCULATION_TOLERANCE` environment variable via `Pydantic Settings` and must be configurable without redeployment. Use Python `Decimal` (never `float`) for all financial arithmetic.
 - The `AUTHORIZATION_DISCLAIMER` text is loaded from `Pydantic Settings`; its SHA-256 hash (`hashlib.sha256(disclaimer.encode()).hexdigest()`) is stored in each `VoucherPDF` record for auditability.
 - All financial numeric values use `NUMERIC(18,4)` in PostgreSQL. Use Python `Decimal` for all arithmetic operations on financial values.
-- Each task references specific requirements for traceability. All 20 requirements are covered.
+- Each task references specific requirements for traceability. All 22 requirements (including Req 21: Indonesian Tax Assignment and Req 22: Template-Based Voucher PDF) are covered.
 
 ---
 
@@ -441,8 +480,8 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 ```json
 {
   "waves": [
-    { "id": 0, "tasks": ["2.1", "3.1", "3.2"] },
-    { "id": 1, "tasks": ["2.2", "3.3", "5.1", "10.1"] },
+    { "id": 0, "tasks": ["2.1", "3.1", "3.2", "3.4"] },
+    { "id": 1, "tasks": ["2.2", "2.3", "3.3", "3.5", "5.1", "10.1"] },
     { "id": 2, "tasks": ["5.2", "6.1", "10.2"] },
     { "id": 3, "tasks": ["6.2", "6.3", "7.1", "10.3", "10.4"] },
     { "id": 4, "tasks": ["7.2", "7.3", "8.1", "8.2", "8.3", "11.1"] },
@@ -450,9 +489,9 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     { "id": 6, "tasks": ["12.2", "14.1", "17.1"] },
     { "id": 7, "tasks": ["14.2", "14.3", "15.1", "17.2", "18.1"] },
     { "id": 8, "tasks": ["15.2", "18.2", "18.3", "19.1", "22.1"] },
-    { "id": 9, "tasks": ["19.2", "19.3", "19.4", "20.1", "22.2"] },
-    { "id": 10, "tasks": ["20.2", "22.3", "22.4", "23.1", "25.1"] },
-    { "id": 11, "tasks": ["23.2", "23.3", "23.4", "25.2", "25.3", "26.1"] },
+    { "id": 9, "tasks": ["19.2", "19.3", "19.4", "20.1", "50.1", "50.2", "22.2"] },
+    { "id": 10, "tasks": ["20.2", "50.3", "50.4", "22.3", "22.4", "23.1", "25.1"] },
+    { "id": 11, "tasks": ["50.5", "51.1", "51.2", "23.2", "23.3", "23.4", "25.2", "25.3", "26.1"] },
     { "id": 12, "tasks": ["23.5", "26.2", "26.3", "28.1", "28.2", "32.1"] },
     { "id": 13, "tasks": ["28.3", "29.1", "30.1", "32.2", "33.1"] },
     { "id": 14, "tasks": ["29.2", "29.3", "29.4", "30.2", "30.3", "30.4", "32.3", "32.4", "33.2", "36.1"] },

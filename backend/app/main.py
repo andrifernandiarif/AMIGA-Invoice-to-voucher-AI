@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routes.admin import router as admin_router
+from app.routes.requests import router as requests_router
+from app.routes.test_extract import router as test_router
+from app.routes.users import router as users_router
+
 app = FastAPI(
     title="AMIGA Robot Admin",
     description="Intelligent Vendor Invoice-to-Voucher Processing",
@@ -14,6 +19,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(users_router)
+app.include_router(requests_router)
+app.include_router(test_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

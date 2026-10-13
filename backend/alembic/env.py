@@ -1,4 +1,5 @@
 import asyncio
+import ssl
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -11,15 +12,32 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.models import Base  # noqa: E402
+from app.models import Base   # noqa: E402
+from app.config import settings  # noqa: E402
 
 target_metadata = Base.metadata
 
+# Build connection URL + SSL args from app settings
+_raw_url = settings.DATABASE_URL
+_connect_args: dict = {}
+
+if "ssl=require" in _raw_url or "sslmode=require" in _raw_url:
+    # Strip query params — asyncpg wants ssl via connect_args, not the URL
+    _db_url = _raw_url.split("?")[0]
+    # macOS often lacks the full CA bundle; disable cert verification for NeonDB
+    _ssl_ctx = ssl.create_default_context()
+    _ssl_ctx.check_hostname = False
+    _ssl_ctx.verify_mode = ssl.CERT_NONE
+    _connect_args = {"ssl": _ssl_ctx}
+else:
+    _db_url = _raw_url
+
+config.set_main_option("sqlalchemy.url", _db_url)
+
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=_db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -39,6 +57,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=_connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

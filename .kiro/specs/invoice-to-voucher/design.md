@@ -89,6 +89,8 @@ graph TB
 - PyJWT for JWT authentication
 - RQ (Redis Queue) for background job queue
 - Redis as the message broker
+- jinja2 for HTML template rendering (explicit dependency)
+- weasyprint for HTML-to-PDF conversion
 - pytest + pytest-asyncio for unit and integration testing
 - Hypothesis for property-based testing
 - Ruff for linting and formatting
@@ -99,7 +101,7 @@ graph TB
 
 **Storage:**
 - PostgreSQL (primary database)
-- AWS S3 for file storage (real S3 bucket used in all environments, including local development)
+- AWS S3 for file storage (EvidenceFiles and VoucherPDFs are both stored in S3, scoped by request_id; real S3 bucket used in all environments, including local development)
 - Redis (job queue + optional telemetry cache)
 
 ### Component Responsibilities
@@ -137,6 +139,8 @@ invoice_to_voucher/
 │   │   ├── services/            # Business logic (request, user, audit, voucher, telemetry)
 │   │   ├── routes/              # FastAPI routers
 │   │   ├── providers/           # ExtractionProvider ABC + mock + bedrock
+│   │   ├── templates/
+│   │   │   └── voucher_default.html   # default Jinja2 voucher template
 │   │   └── validation/          # Completeness, calculation, duplicate validators
 │   └── worker/
 │       ├── main.py              # RQ worker entry point
@@ -295,6 +299,21 @@ Draft {
 }
 ```
 
+### EvidenceFile
+
+```
+EvidenceFile {
+  evidence_id       UUID (PK, default uuid4)
+  request_id        UUID (FK → Request)
+  file_key          VARCHAR(500)            -- S3 key
+  original_filename VARCHAR(500)
+  content_type      VARCHAR(100)            -- application/pdf, image/png, image/jpeg
+  file_size_bytes   BIGINT
+  upload_order      INTEGER                 -- 1-based, preserves submission order
+  uploaded_at       TIMESTAMPTZ
+}
+```
+
 ### HeaderFields
 
 ```
@@ -328,6 +347,33 @@ LineItem {
   extraction_status ENUM(COMPLETE, PARTIAL)        -- PARTIAL when any field missing
 }
 ```
+
+### TaxAssignment
+
+```
+TaxAssignment {
+  tax_assignment_id UUID (PK, default uuid4)
+  line_item_id      UUID (FK → LineItem, unique — one assignment per item)
+  tax_type          ENUM(PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX)
+  tax_rate          NUMERIC(5,4)            -- hardcoded: 0.05, 0.015, 0.02, 0.02, 0.11, 0.00
+  tax_amount        NUMERIC(18,4)           -- computed: line_total × tax_rate, using Decimal arithmetic
+  assigned_at       TIMESTAMPTZ
+  assigned_by       UUID (FK → User)
+}
+```
+
+**Hardcoded Indonesian tax rates:**
+
+| Tax Type | Rate |
+|---|---|
+| PPH21 | 5% (0.0500) |
+| PPH22 | 1.5% (0.0150) |
+| PPH23 | 2% (0.0200) |
+| PPH25 | 2% (0.0200) |
+| PPN | 11% (0.1100) |
+| NO_TAX | 0% (0.0000) |
+
+Tax amounts MUST be computed using Python `Decimal`, never `float`.
 
 ### PaymentDetails
 
@@ -415,14 +461,32 @@ Client {
 
 ```
 VoucherPDF {
-  voucher_pdf_id    UUID (PK)
-  request_id        UUID (FK → Request)
-  file_key          VARCHAR                        -- blob storage key
-  generated_at      TIMESTAMPTZ
-  generated_by      UUID (FK → User)
-  disclaimer_hash   CHAR(64)                       -- SHA-256 of Authorization_Disclaimer text used
+  voucher_pdf_id       UUID (PK)
+  request_id           UUID (FK → Request)
+  file_key             VARCHAR(500)           -- S3 key
+  generated_at         TIMESTAMPTZ
+  generated_by         UUID (FK → User)
+  template_version     VARCHAR(100)           -- version identifier of the template used
+  disclaimer_hash      CHAR(64)               -- SHA-256 of Authorization_Disclaimer text
+  template_hash        CHAR(64)               -- SHA-256 of rendered HTML before PDF conversion
 }
 ```
+
+### VoucherTemplate
+
+```
+VoucherTemplate {
+  template_id      UUID (PK)
+  version          VARCHAR(100)              -- e.g. "v1.0", "v1.1"
+  template_content TEXT                      -- Jinja2 HTML template with {{placeholders}}
+  is_active        BOOLEAN DEFAULT FALSE     -- exactly one active template at a time
+  created_by       UUID (FK → User)
+  created_at       TIMESTAMPTZ
+}
+```
+
+**Required placeholders that every template must contain:**
+`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`
 
 ### TelemetryRecord
 
@@ -447,13 +511,16 @@ erDiagram
     User ||--o{ ClientAssignment : "holds"
     Client ||--o{ Request : "has"
     User ||--o{ Request : "uploads"
+    Request ||--o{ EvidenceFile : "has evidence"
     Request ||--|| Draft : "has"
     Draft ||--|| HeaderFields : "contains"
     Draft ||--o{ LineItem : "contains"
+    LineItem ||--o| TaxAssignment : "has tax"
     Draft ||--|| PaymentDetails : "contains"
     Request ||--o{ FieldRevision : "has"
     Request ||--o{ AuditEvent : "logged in"
     Request ||--o| VoucherPDF : "produces"
+    Request ||--o| VoucherTemplate : "uses template version"
     User ||--o{ AuditEvent : "actor"
     User ||--o{ FieldRevision : "actor"
 ```
@@ -588,8 +655,8 @@ from app.schemas.extraction import ExtractionResult
 
 class ExtractionProvider(ABC):
     @abstractmethod
-    async def extract(self, pdf_bytes: bytes, request_id: UUID) -> ExtractionResult:
-        """Extract invoice fields from PDF bytes. Returns structured ExtractionResult."""
+    async def extract(self, evidence_files: list[tuple[bytes, str]], request_id: UUID) -> ExtractionResult:
+        """Extract invoice fields from one or more evidence files. Returns structured ExtractionResult."""
         ...
 ```
 
@@ -611,12 +678,38 @@ class BedrockExtractionProvider(ExtractionProvider):
         self.client = boto3.client("bedrock-runtime", region_name=settings.AWS_REGION)
         self.model_id = settings.BEDROCK_MODEL_ID  # configurable, e.g. "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
-    async def extract(self, pdf_bytes: bytes, request_id: UUID) -> ExtractionResult:
-        # 1. Encode PDF appropriately for the selected model
-        # 2. Submit to Bedrock Runtime with a structured-output prompt
-        # 3. Parse model response against ExtractionResult Pydantic schema
-        # 4. Return result with None for fields the model could not extract
+    async def extract(self, evidence_files: list[tuple[bytes, str]], request_id: UUID) -> ExtractionResult:
+        """
+        Extract invoice fields from one or more evidence files.
+
+        Args:
+            evidence_files: List of (file_bytes, content_type) tuples — PDF, PNG, or JPEG.
+            request_id: Used for idempotency checks.
+
+        Pipeline:
+        1. Encode each file for the Bedrock model:
+           - PDFs: use document block (base64 encoded) if model supports it; otherwise convert to PNG
+           - Images (PNG/JPEG): use image block (base64 encoded)
+        2. Build a single multi-content message with the Extraction_Prompt as the system prompt
+           and all encoded files as user message content blocks.
+        3. Call bedrock-runtime InvokeModel / Converse API.
+        4. Parse the model response JSON against the ExtractionResult Pydantic schema.
+        5. Return ExtractionResult with None for any field the model could not extract.
+        """
 ```
+
+### ExtractionResult Schema
+
+```python
+class ExtractionResult(BaseModel):
+    header: HeaderFieldsSchema | None
+    line_items: list[LineItemSchema]
+    payment_details: PaymentDetailsSchema | None
+    extraction_prompt_version: str        # recorded in audit trail
+    raw_response: str | None              # model's raw JSON for debugging
+```
+
+**Extraction_Prompt**: Stored in `VoucherTemplate`-adjacent config or as a system-level setting. Returns JSON conforming to the ExtractionResult schema. System_Admin-configurable without code deployment.
 
 **Model selection notes:**
 - The Bedrock model is selected via `BEDROCK_MODEL_ID` environment variable — it is NOT hardcoded.
@@ -740,7 +833,50 @@ The primary database retains all `AuditEvent` and `FieldRevision` rows for a min
 
 ## Voucher PDF Generation
 
-### Generation Pipeline
+### Voucher PDF Generation — Jinja2 + WeasyPrint
+
+**Technology choice: Jinja2 + WeasyPrint**
+- **Jinja2** renders the HTML `VoucherTemplate` by substituting `{{placeholder}}` values with approved Draft fields, Tax_Assignment summaries, and configuration values.
+- **WeasyPrint** converts the rendered HTML to a PDF with CSS-driven layout.
+- The template is stored in the database (`VoucherTemplate` table) and loaded at generation time — no hard-coded layout in application code.
+
+**Generation pipeline:**
+
+```python
+async def generate_voucher_pdf(request_id: UUID, actor_id: UUID, db: AsyncSession) -> VoucherPDF:
+    # 1. Load the active VoucherTemplate
+    template_record = await load_active_template(db)
+
+    # 2. Assemble template context from approved Draft
+    context = build_template_context(draft, tax_assignments, settings)
+    # context includes: vendor_name, invoice_number, invoice_date,
+    #   line_items_table (list of dicts with tax_type and tax_amount per row),
+    #   tax_summary_table (per-type subtotals),
+    #   subtotal, total_tax, grand_total, bank_*, authorization_disclaimer
+
+    # 3. Render HTML via Jinja2
+    jinja_env = Environment(loader=BaseLoader())
+    template = jinja_env.from_string(template_record.template_content)
+    rendered_html = template.render(context)
+
+    # 4. Convert to PDF via WeasyPrint
+    pdf_bytes = HTML(string=rendered_html).write_pdf()
+
+    # 5. Upload PDF to S3, persist VoucherPDF record with template_version,
+    #    disclaimer_hash (SHA-256 of disclaimer text),
+    #    template_hash (SHA-256 of rendered_html)
+```
+
+**Grand total calculation:**
+```python
+subtotal = sum(Decimal(str(item.line_total)) for item in line_items)
+total_tax = sum(Decimal(str(ta.tax_amount)) for ta in tax_assignments)
+grand_total = subtotal + total_tax
+```
+
+**SLA**: Voucher PDF generation must complete within 5 seconds of the request (updated from 3s to account for Jinja2+WeasyPrint render time).
+
+### Generation Sequence
 
 ```mermaid
 sequenceDiagram
@@ -760,7 +896,7 @@ sequenceDiagram
     VS-->>CP: 200 OK (voucher_pdf_id, download_url)
 ```
 
-Generation must complete within 3 seconds of the request (Requirement 15.1). If generation fails, no `VOUCHER_GENERATED` event is recorded and no `SENT_TO_CLIENT` transition occurs (Requirement 15.5).
+Generation must complete within 5 seconds of the request (Requirement 15.1). If generation fails, no `VOUCHER_GENERATED` event is recorded and no `SENT_TO_CLIENT` transition occurs (Requirement 15.5).
 
 ### Authorization_Disclaimer
 
@@ -796,7 +932,7 @@ The idempotency check ensures exactly one `SENT_TO_CLIENT` event is recorded eve
 |---|---|---|---|
 | AI extraction (≤5 pages) | Job transitions to PROCESSING | Extraction output written to DB | 15 s |
 | AI extraction (6–20 pages) | Job transitions to PROCESSING | Extraction output written to DB | 30 s |
-| Voucher PDF generation | Generation request received | File available for download | 3 s |
+| Voucher PDF generation | Generation request received | File available for download | 5 s |
 | Queue dashboard page load | Navigation request sent | Page fully interactive | 2 s |
 | Review workspace page load | Navigation request sent | Both panels interactive | 2 s |
 | Audit Trail render | Request to view audit trail | Results displayed | 3 s |
@@ -882,6 +1018,9 @@ Unit tests cover specific examples, edge cases, and error conditions in isolatio
 - **Authorization checks**: self-approval rejected, System_Admin approval rejected, inactive assignment denied
 - **Request ID generation**: collision retry logic (up to 5 retries, then failure)
 - **Rejection reason validation**: 0 chars rejected, 1 char accepted, 500 chars accepted, 501 chars rejected
+- **Tax calculation**: for each tax type, verify `Decimal(line_total) × rate == expected_tax_amount`; verify grand_total = subtotal + total_tax
+- **Template rendering**: verify all required placeholders are substituted; verify missing values produce empty string, not error
+- **Multi-file extraction**: mock Bedrock returning a result from 3 evidence files combined
 
 ### Property-Based Testing
 
@@ -1072,6 +1211,6 @@ the AMIGA_System SHALL flag the discrepant field, set the Request status to EXCE
 
 ### Property 17: Telemetry Breach Events Are Recorded When SLA Thresholds Are Exceeded; Aggregated Metrics Are Consistent
 
-*For any* measured operation whose duration exceeds its defined threshold (15 s for ≤5-page extraction, 30 s for 6–20-page extraction, 3 s for PDF generation, 3 s for page load), the AMIGA_System SHALL record a breach event containing the subject identifier, duration in milliseconds, applicable page count (for extraction), and UTC timestamp. For any set of telemetry records of the same metric type, the aggregated dashboard SHALL satisfy: p50 ≤ p90 ≤ p99, and breach_rate = (breach_count ÷ total_count) × 100.
+*For any* measured operation whose duration exceeds its defined threshold (15 s for ≤5-page extraction, 30 s for 6–20-page extraction, 5 s for PDF generation, 3 s for page load), the AMIGA_System SHALL record a breach event containing the subject identifier, duration in milliseconds, applicable page count (for extraction), and UTC timestamp. For any set of telemetry records of the same metric type, the aggregated dashboard SHALL satisfy: p50 ≤ p90 ≤ p99, and breach_rate = (breach_count ÷ total_count) × 100.
 
 **Validates: Requirements 20.1, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8**

@@ -32,24 +32,33 @@ AMIGA Robot Admin is an intelligent vendor invoice-to-voucher processing platfor
 - **Payment_Details**: Bank and payment routing information extracted from the invoice (e.g., bank account number, bank name, payment reference).
 - **Calculation_Tolerance**: The acceptable numeric variance (defined by Finance) within which computed totals are considered correct.
 - **Authorization_Disclaimer**: Mandatory wording included in every generated Voucher PDF stating the limitation of the AMIGA_System's approval authority.
+- **Evidence_File**: A single uploaded file (PDF, PNG, JPG, JPEG, or any image/document format) submitted as part of an upload session to support a Request. Each Request may have multiple Evidence_Files.
+- **Upload_Session**: A single submission event in which one or more Evidence_Files and required metadata are submitted together to create one Request.
+- **Indonesian_Tax_Type**: A statutory Indonesian tax type that can be assigned to a Line_Item. Supported types are: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), and OTHER (user-defined rate). Exactly one tax type may be assigned per Line_Item; the assignment is optional.
+- **Tax_Assignment**: The association of an Indonesian_Tax_Type to a specific Line_Item, including the computed tax amount for that item.
+- **Extraction_Prompt**: A configurable system prompt sent to Amazon Bedrock that instructs the model to extract invoice fields into a specific JSON schema. The JSON schema defines the expected structure of Header_Fields, Line_Items, and Payment_Details.
+- **Voucher_Template**: An editable document template containing named placeholders (e.g. `{{vendor_name}}`, `{{invoice_total}}`) that is rendered into the final Voucher PDF by substituting approved field values.
+- **Placeholder**: A named token in the Voucher_Template surrounded by double curly braces (e.g. `{{field_name}}`) that is replaced with the corresponding approved value during PDF generation.
 
 ---
 
 ## Requirements
 
-### Requirement 1: Invoice Upload
+### Requirement 1: Evidence Upload
 
-**User Story:** As a Client PIC or Intake Support, I want to upload a vendor invoice PDF along with required metadata, so that a new processing Request is created and enters the queue.
+**User Story:** As a Client PIC or Intake Support, I want to upload one or more evidence files (invoices, screenshots, images) together with required metadata, so that a new processing Request is created and all uploaded files are preserved as auditable evidence.
 
 #### Acceptance Criteria
 
-1. WHEN a Client_PIC or Intake_Support submits a PDF file along with the required metadata fields (client name, request type, channel, and request date), THE AMIGA_System SHALL create a new Request with a system-generated Request_ID and set its status to QUEUED.
-2. THE AMIGA_System SHALL accept invoice files in PDF format only, with a maximum file size of 20 MB.
-3. WHEN a submitted file is not in PDF format, THE AMIGA_System SHALL reject the upload and return an error message that names the file format that was received and states that only PDF files are accepted.
-4. WHEN a Request is created, THE AMIGA_System SHALL record the uploading user's unique account identifier and the upload timestamp in the Audit_Trail.
-5. WHERE the submitting user is an Intake_Support acting on behalf of a delegated client, THE AMIGA_System SHALL associate the Request with the delegated client's account, provided the Intake_Support holds a valid Client_Assignment for that client.
-6. IF the submitting user is an Intake_Support who does not hold a valid Client_Assignment for the selected client, THEN THE AMIGA_System SHALL reject the submission and return an error message stating that the user is not authorized to submit invoices for the selected client.
-7. IF any required metadata field (client name, request type, channel, or request date) is missing or empty, THEN THE AMIGA_System SHALL reject the submission and return an error message identifying each missing field by name.
+1. WHEN a Client_PIC or Intake_Support submits one or more files along with the required metadata fields (client name, request type, channel, and request date), THE AMIGA_System SHALL create a new Request with a system-generated Request_ID, associate all submitted files as Evidence_Files for that Request, and set the Request status to QUEUED.
+2. THE AMIGA_System SHALL accept Evidence_Files in the following formats: PDF, PNG, JPG, and JPEG. Each individual file SHALL NOT exceed 20 MB. An Upload_Session SHALL NOT contain more than 20 files.
+3. WHEN any submitted file is not in an accepted format, THE AMIGA_System SHALL reject the entire Upload_Session and return an error message that names the file format received and lists the accepted formats.
+4. WHEN any submitted file exceeds 20 MB, THE AMIGA_System SHALL reject the entire Upload_Session and return an error message identifying the oversized file by name.
+5. WHEN a Request is created, THE AMIGA_System SHALL record the uploading user's unique account identifier, the upload timestamp, and the names and formats of all Evidence_Files in the Audit_Trail.
+6. WHERE the submitting user is an Intake_Support acting on behalf of a delegated client, THE AMIGA_System SHALL associate the Request with the delegated client's account, provided the Intake_Support holds a valid Client_Assignment for that client.
+7. IF the submitting user is an Intake_Support who does not hold a valid Client_Assignment for the selected client, THEN THE AMIGA_System SHALL reject the Upload_Session and return an error message stating that the user is not authorized to submit for the selected client.
+8. IF any required metadata field (client name, request type, channel, or request date) is missing or empty, THEN THE AMIGA_System SHALL reject the Upload_Session and return an error message identifying each missing field by name.
+9. THE AMIGA_System SHALL store each Evidence_File in S3 under a path scoped to the Request_ID and make it retrievable for the audit timeline and review workspace for the lifetime of the Request.
 
 ---
 
@@ -82,18 +91,20 @@ AMIGA Robot Admin is an intelligent vendor invoice-to-voucher processing platfor
 
 ---
 
-### Requirement 4: AI Extraction of Invoice Fields
+### Requirement 4: AI Extraction via Amazon Bedrock
 
-**User Story:** As a Finance Reviewer, I want the system to automatically extract header fields, line items, and payment details from the uploaded PDF, so that I have a structured draft to review rather than manually re-keying the invoice.
+**User Story:** As a Finance Reviewer, I want the system to automatically extract invoice header fields, line items, and payment details from all evidence files using a configurable AI prompt, so that I have a structured draft to review.
 
 #### Acceptance Criteria
 
-1. WHEN a Request enters PROCESSING status, THE Robot_Admin SHALL extract Header_Fields, Line_Items, and Payment_Details from the invoice PDF.
-2. WHEN extraction is complete, THE AMIGA_System SHALL present the extracted data as a Draft with a persistent, visible label reading "AI-generated draft — not approved" and set the Request status to READY_FOR_REVIEW or EXCEPTION based on validation outcomes.
-3. WHEN an extraction job processes a PDF of up to 5 pages, THE Robot_Admin SHALL complete extraction within 15 seconds from the moment the job transitions to PROCESSING status.
-4. WHEN an extraction job processes a PDF of 6 to 20 pages, THE Robot_Admin SHALL complete extraction within 30 seconds from the moment the job transitions to PROCESSING status.
-5. THE AMIGA_System SHALL never automatically set a Request status to AMIGA_REVIEWED without a Finance_Reviewer approval action.
-6. IF the Robot_Admin cannot extract one or more required Header_Fields or Payment_Details fields, THEN THE AMIGA_System SHALL create a partial Draft with the available extracted fields, apply the MISSING_EVIDENCE flag, and transition the Request to EXCEPTION status.
+1. WHEN a Request enters PROCESSING status, THE Robot_Admin SHALL submit all Evidence_Files for that Request to Amazon Bedrock using the configured Extraction_Prompt and await a structured JSON response matching the defined extraction schema (Header_Fields, Line_Items, Payment_Details).
+2. THE Robot_Admin SHALL encode each Evidence_File appropriately for the selected Bedrock model (base64 for image inputs; document upload for PDF inputs where supported) and include all files in a single Bedrock invocation or in sequential invocations consolidated into one Draft.
+3. THE Robot_Admin SHALL parse the Bedrock response against the Pydantic ExtractionResult schema; fields the model could not extract SHALL be represented as `null` — the Robot_Admin SHALL NOT invent or fabricate values.
+4. WHEN extraction is complete, THE AMIGA_System SHALL present the extracted data as a Draft with a persistent, visible label reading "AI-generated draft — not approved" and set the Request status to READY_FOR_REVIEW or EXCEPTION based on validation outcomes.
+5. THE Robot_Admin SHALL complete extraction within 30 seconds from the moment the job transitions to PROCESSING status, regardless of the number of Evidence_Files (up to 20 files).
+6. THE AMIGA_System SHALL never automatically set a Request status to AMIGA_REVIEWED without an explicit Finance_Reviewer approval action.
+7. IF the Robot_Admin cannot extract one or more required Header_Fields or Payment_Details fields from any of the Evidence_Files, THEN THE AMIGA_System SHALL create a partial Draft with the available extracted fields, apply the MISSING_EVIDENCE flag, and transition the Request to EXCEPTION status.
+8. THE Extraction_Prompt SHALL be configurable by a System_Admin without code deployment; the active prompt version SHALL be recorded in the Audit_Trail alongside each extraction result.
 
 ---
 
@@ -269,6 +280,7 @@ AMIGA Robot Admin is an intelligent vendor invoice-to-voucher processing platfor
 3. WHEN a Finance_Reviewer, Service_Lead, or System_Admin views the Audit_Trail, THE AMIGA_System SHALL display all Revisions with the field identifier, old value, new value, actor identity, and UTC timestamp.
 4. THE AMIGA_System SHALL record the actor's unique account identifier and the UTC timestamp for every event and Revision added to the Audit_Trail.
 5. THE AMIGA_System SHALL provide read-only access to the Audit_Trail for Finance_Reviewers, Service_Leads, and System_Admins from the Request detail screen.
+6. THE AMIGA_System SHALL include the names, formats, and S3 storage keys of all Evidence_Files for a Request in the Audit_Trail, visible to Finance_Reviewers, Service_Leads, and System_Admins from the Request detail screen.
 
 ---
 
@@ -315,3 +327,43 @@ AMIGA Robot Admin is an intelligent vendor invoice-to-voucher processing platfor
 6. WHEN Voucher PDF generation time exceeds 3 seconds, THE AMIGA_System SHALL record a performance breach event in the telemetry log containing the job identifier, measured duration in milliseconds, and UTC timestamp.
 7. WHEN a page load time for the queue dashboard or review workspace exceeds 3 seconds, THE AMIGA_System SHALL record a performance breach event in the telemetry log containing the page identifier, measured duration in milliseconds, and UTC timestamp.
 8. THE AMIGA_System SHALL make aggregated performance metrics accessible to Service_Leads and System_Admins through a telemetry dashboard displaying at minimum the 50th-percentile, 90th-percentile, and 99th-percentile durations, total breach count, and breach rate as a percentage of total measurements, refreshed at intervals no greater than 60 seconds.
+
+---
+
+### Requirement 21: Per-Line-Item Indonesian Tax Assignment
+
+**User Story:** As a Finance Reviewer, I want to assign an Indonesian tax type to each extracted line item, so that the correct tax amount is calculated and included in the final voucher.
+
+#### Acceptance Criteria
+
+1. WHEN a Finance_Reviewer opens the review workspace for a Request in READY_FOR_REVIEW or EXCEPTION status, THE AMIGA_System SHALL display a tax-type selector for each Line_Item. The selector SHALL offer the following options: PPh 21, PPh 22, PPh 23, PPh 25, PPN, and No Tax. Exactly one option may be selected per Line_Item.
+2. THE AMIGA_System SHALL apply the following hardcoded tax rates when computing the tax amount for a Line_Item:
+   - PPh 21: 5% of the Line_Item's line_total
+   - PPh 22: 1.5% of the Line_Item's line_total
+   - PPh 23: 2% of the Line_Item's line_total
+   - PPh 25: 2% of the Line_Item's line_total
+   - PPN: 11% of the Line_Item's line_total
+   - No Tax: 0%
+3. WHEN a Finance_Reviewer selects a tax type for a Line_Item, THE AMIGA_System SHALL immediately display the computed tax amount for that item using the hardcoded rate and Decimal arithmetic (no floating-point).
+4. THE AMIGA_System SHALL compute and display a tax subtotal per tax type (the sum of all Line_Item tax amounts sharing the same type) and a grand total tax amount across all Line_Items.
+5. WHEN a Finance_Reviewer saves the tax assignments, THE AMIGA_System SHALL persist each Tax_Assignment (Line_Item reference, tax type, tax rate applied, computed tax amount) as part of the Draft and record a FIELD_REVISED Audit_Trail entry for each changed assignment.
+6. THE AMIGA_System SHALL include all Tax_Assignments in the Voucher PDF: each Line_Item row SHALL show its tax type and tax amount, the summary SHALL show per-type subtotals, and the grand total SHALL include the sum of all taxes.
+7. Tax type assignments SHALL be editable at any point while the Request is in READY_FOR_REVIEW or EXCEPTION status. Once the Request reaches AMIGA_REVIEWED status, tax assignments SHALL be locked and not modifiable.
+8. IF a Line_Item has no tax type assigned when the Finance_Reviewer submits the approval, THE AMIGA_System SHALL treat that Line_Item as "No Tax" — not as a missing-evidence flag.
+
+---
+
+### Requirement 22: Template-Based Voucher PDF Generation
+
+**User Story:** As a Finance Reviewer or System Admin, I want the voucher to be generated from an editable template with named placeholders, so that the output format can be customised without code changes.
+
+#### Acceptance Criteria
+
+1. THE AMIGA_System SHALL maintain a Voucher_Template stored as an editable HTML or DOCX file containing named Placeholders (e.g. `{{vendor_name}}`, `{{invoice_number}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{grand_total}}`, `{{authorization_disclaimer}}`).
+2. A System_Admin SHALL be able to update the active Voucher_Template via the admin interface; each template update SHALL be versioned, and the version used for each generated PDF SHALL be recorded in the VoucherPDF record.
+3. WHEN a Voucher PDF is generated, THE AMIGA_System SHALL render the active Voucher_Template by substituting each Placeholder with the corresponding approved value from the Request's Draft, Tax_Assignments, and system configuration.
+4. THE AMIGA_System SHALL use **Jinja2** for HTML template rendering and **WeasyPrint** to convert the rendered HTML to a PDF. The template engine SHALL be the sole mechanism for constructing the Voucher PDF — no hard-coded PDF layout code.
+5. THE AMIGA_System SHALL include the following mandatory Placeholders in every Voucher_Template: `{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`.
+6. WHEN a Placeholder in the template has no corresponding approved value, THE AMIGA_System SHALL substitute an empty string and log a warning — it SHALL NOT fail PDF generation.
+7. THE AMIGA_System SHALL generate the Voucher PDF within 5 seconds of the generation request (revised from 3 seconds to account for Jinja2 + WeasyPrint rendering time for complex invoices with many line items and tax rows).
+8. THE AMIGA_System SHALL store each generated Voucher PDF in S3 and record a SHA-256 hash of both the rendered template content and the Authorization_Disclaimer text in the VoucherPDF record for auditability.

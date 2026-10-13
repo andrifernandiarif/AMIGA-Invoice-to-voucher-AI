@@ -1,0 +1,792 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Initialize monorepo structure and tooling": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931807
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874942935
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874951808
+      }
+    ],
+    "2.1 Write Alembic migration files for all 12 entities: `Client`, `User`, `ClientAssignment`, `Request`, `Draft`, `HeaderFields`, `LineItem`, `PaymentDetails`, `FieldRevision`, `AuditEvent`, `VoucherPDF`, `TelemetryRecord`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931844
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874961416
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874970550
+      }
+    ],
+    "3.1 Implement `app/storage.py`: `S3FileStore` class using the `boto3` S3 client (standard AWS regional endpoint — no custom endpoint override); expose `async upload(key: str, data: bytes, content_type: str) -> None` and `async download(key: str) -> bytes` methods; read bucket and region from `Pydantic Settings` (`S3_BUCKET`, `AWS_REGION`); credentials resolved from the AWS credential provider chain (env vars, IAM role, or `~/.aws/credentials`)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931865
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874980107
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875474368
+      }
+    ],
+    "3.2 Implement `app/queue.py`: `get_redis_connection() -> Redis` and `get_extraction_queue() -> Queue` helpers using `rq`'s built-in `Queue` class; queue name: `amiga-extraction`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931885
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874989651
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875483733
+      }
+    ],
+    "4. Checkpoint — Ensure Alembic migrations run cleanly against the local native PostgreSQL instance and all Phase 1 tests pass. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931909
+      },
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791901011352
+      },
+      {
+        "executionId": "b70b809c-e72c-4f6d-8f80-cdddefde4fd4",
+        "chatSessionId": "sess_76ab3eac-26cf-46fb-be55-87583bb2402d",
+        "timestamp": 1791901088349
+      },
+      {
+        "executionId": "b70b809c-e72c-4f6d-8f80-cdddefde4fd4",
+        "chatSessionId": "sess_76ab3eac-26cf-46fb-be55-87583bb2402d",
+        "timestamp": 1791901482595
+      }
+    ],
+    "5.1 Create `app/repositories/user_repository.py`: async SQLAlchemy methods `find_by_username(username) -> User | None`, `create_user(data) -> User`, `update_role(user_id, role) -> User`, `add_assignment(user_id, client_id) -> ClientAssignment`, `revoke_assignment(user_id, client_id) -> None`, `is_assignment_active(user_id, client_id) -> bool`; all queries use parameterized SQLAlchemy expressions (no raw string interpolation)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931937
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875494170
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875739437
+      }
+    ],
+    "6.1 Implement `app/auth.py`: `create_access_token(user_id: UUID, role: str) -> str` using `PyJWT` (`jwt.encode`) with `HS256` algorithm, embedding `user_id` and `role` claims plus `exp`; `decode_token(token: str) -> dict` using `jwt.decode` — raises `HTTPException(status_code=401)` on invalid signature, expired token, or missing claims": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931959
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875788471
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875871519
+      }
+    ],
+    "6.2 Implement `app/dependencies.py`: `get_db` async session dependency yielding an `AsyncSession`; `get_current_user` FastAPI dependency using `Depends(OAuth2PasswordBearer)` + `decode_token` — on failure raises `HTTPException(401)`; on success returns the `User` ORM object loaded from DB": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874931979
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876199252
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876344486
+      }
+    ],
+    "7.1 Implement `require_role(*roles: str)` FastAPI dependency factory in `app/dependencies.py`: raises `HTTPException(status_code=403, detail=\"You do not have authority to perform this action.\")` if `current_user.role` is not in the allowed set": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932001
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876354373
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876630461
+      }
+    ],
+    "7.2 Implement `require_client_assignment(request_id: UUID)` FastAPI dependency: calls `UserRepository.is_assignment_active(current_user.user_id, client_id)` via a direct DB lookup on every request (no caching); raises `HTTPException(status_code=403, detail=\"You are not authorized to access Requests for this client.\")` with no client data in the response body if the assignment is inactive or absent": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932025
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876364834
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876639905
+      }
+    ],
+    "8.1 Implement `POST /users` FastAPI router (System Admin only via `Depends(require_role(\"SYSTEM_ADMIN\"))`): validate required fields (username, role, at least one `ClientAssignment`) using a Pydantic v2 request schema; reject duplicate usernames with `HTTPException(409)`; reject `SYSTEM_ADMIN` accounts from holding approval authority with `HTTPException(422)`; create user and return `201` within 5 seconds": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932044
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876659423
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878642174
+      }
+    ],
+    "8.2 Implement `PATCH /users/{id}/role` and `POST`/`DELETE /users/{id}/assignments` FastAPI routers (System Admin only): apply changes within 5 seconds; write a `USER_MODIFIED` event to the system audit log": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932066
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878652100
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878968539
+      }
+    ],
+    "8.3 Implement `GET /users/{id}` FastAPI router (System Admin only)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932096
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878977425
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878986921
+      }
+    ],
+    "9. Checkpoint — Run all Phase 2 tests. Ensure auth dependencies correctly gate a sample protected route. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932118
+      }
+    ],
+    "10.1 Create `app/repositories/request_repository.py`: async SQLAlchemy methods `create_request(data) -> Request`, `get_by_id(request_id) -> Request | None`, `list_for_user(user_id, role, client_ids, statuses) -> list[Request]`, `update_status(request_id, new_status) -> Request`, `apply_flag(request_id, flag) -> None`, `remove_flag(request_id, flag) -> None`, `set_assigned_reviewer(request_id, reviewer_id) -> None`; all queries use parameterized SQLAlchemy expressions": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932141
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875503485
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875749126
+      }
+    ],
+    "10.2 Implement `RequestIdGenerator` in `app/services/request_service.py`: generate a `uuid.uuid4()`; on collision (checked against DB) retry up to 5 times; after 5 failures raise `RequestIdGenerationError`; assign and persist within 3 seconds": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932162
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875797983
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876188537
+      }
+    ],
+    "11.1 Implement `POST /requests` FastAPI router with `UploadFile` + `Form` fields: validate MIME type is `application/pdf` and size ≤ 20 MB — reject with `415` naming the received format or `413` for size; validate all required metadata fields (`client_name`, `request_type`, `channel`, `request_date`) via a Pydantic v2 schema — reject with `422` naming each missing field; if `role == INTAKE_SUPPORT` verify active `ClientAssignment` — reject with `403` if absent; on success upload to `S3FileStore`, call `RequestIdGenerator`, persist the `Request` with status `QUEUED`, write a `REQUEST_CREATED` `AuditEvent` (uploader `user_id` + UTC timestamp), and return `201` with the `request_id`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932186
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876672038
+      },
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791879002316
+      }
+    ],
+    "12.1 After a Request is persisted in `QUEUED` status, enqueue an `extract_invoice` RQ job via `extraction_queue.enqueue(extract_invoice, extraction_job)` where `extraction_job` is an `ExtractionJob` dataclass with `request_id`, `file_key`, and `invoice_page_count`; update Request status to `PROCESSING`; write a `STATUS_CHANGED` (`QUEUED → PROCESSING`) `AuditEvent`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932207
+      }
+    ],
+    "13. Checkpoint — Confirm end-to-end: upload a PDF via `POST /requests`, see `QUEUED` request in DB, verify extraction job appears in Redis queue. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932231
+      }
+    ],
+    "14.1 Create `worker/jobs/extraction.py`: `extract_invoice(job: ExtractionJob)` RQ job function; fetch PDF bytes from `S3FileStore`; check idempotency (if `Draft` already exists for `request_id`, skip creation and proceed to validation); call `ExtractionProvider.extract(pdf_bytes, request_id)` — provider selected via `EXTRACTION_PROVIDER` env var (`\"mock\"` or `\"bedrock\"`); persist `Draft`, `HeaderFields`, `LineItem[]`, and `PaymentDetails` records to the DB; record `start_time` (from the moment status transitioned to `PROCESSING`) and `end_time` for telemetry; on RQ job failure after 3 retries (exponential backoff: 30s, 60s, 120s), transition Request to `EXCEPTION` with a `PROCESSING_FAILED` `AuditEvent`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932250
+      }
+    ],
+    "14.2 After persisting extraction output, call `ValidationEngine.run(draft, db)` to collect flags; update Request status to `READY_FOR_REVIEW` (no flags) or `EXCEPTION` (at least one flag); write `STATUS_CHANGED` and `FLAG_APPLIED` `AuditEvent`s via `AuditService`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932276
+      }
+    ],
+    "15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932313
+      }
+    ],
+    "16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932335
+      }
+    ],
+    "17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932358
+      }
+    ],
+    "18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932382
+      }
+    ],
+    "19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932403
+      }
+    ],
+    "19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932426
+      }
+    ],
+    "20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932448
+      }
+    ],
+    "21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932469
+      }
+    ],
+    "22.1 Implement `PUT /requests/{id}/fields` FastAPI router (Finance Reviewer + active `ClientAssignment` via `Depends`): accept a Pydantic v2 request body `{ field_path: str, new_value: str }`; load the current value from the appropriate table (`HeaderFields` / `LineItem` / `PaymentDetails`) by `field_path`; if new value differs from current value, atomically update the field value AND insert a `FieldRevision` record within a single SQLAlchemy async transaction; on transaction failure, roll back both writes and return `HTTPException(500, \"The change could not be saved. Please try again.\")`; append a `FIELD_REVISED` `AuditEvent` referencing `revision_id`; skip entirely (no-op) if `new_value == old_value`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932493
+      }
+    ],
+    "22.2 Implement `GET /requests/{id}/revisions` FastAPI router (Finance Reviewer, Service Lead, System Admin only): return the complete `FieldRevision` list for the Request ordered by `revised_at` ascending": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932515
+      }
+    ],
+    "23.1 Build the `ReviewWorkspace` component: two-panel layout (PDF viewer panel on the left, editable draft form panel on the right); both panels are simultaneously visible without scrolling between them; PDF viewer uses `react-pdf` to render the invoice file fetched from the backend; form panel renders all `HeaderFields`, `LineItems`, and `PaymentDetails` as individually editable inputs; render the \"AI-generated draft — not approved\" label persistently at the top of the form panel": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932536
+      }
+    ],
+    "23.2 For each editable field, display the original AI-extracted value adjacent to the edit control (read-only); call `PUT /requests/{id}/fields` on field blur/save; show a confirmation prompt when the user attempts to navigate away with unsaved changes": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932559
+      }
+    ],
+    "23.3 Handle PDF load failure: display an error message in the PDF panel and a direct download link for the original file": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932583
+      }
+    ],
+    "23.4 On workspace mount, begin measuring the time from navigation request to the point when both panels are interactive; report this duration to `POST /telemetry/page-load` with `page = REVIEW_WORKSPACE`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932607
+      }
+    ],
+    "24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932628
+      }
+    ],
+    "25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, \"Self-approval is not permitted.\")`; if any active EXCEPTION flag exists raise `HTTPException(409, \"Unresolved exceptions must be addressed before this Request can be approved.\")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, \"You do not have authority to approve Requests.\")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932648
+      }
+    ],
+    "26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932673
+      }
+    ],
+    "27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932698
+      }
+    ],
+    "28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED` — reject with error if not; assemble all approved `HeaderFields`, `LineItems`, and `PaymentDetails`; inject the `AUTHORIZATION_DISCLAIMER` from `Pydantic Settings`; render to PDF using WeasyPrint or reportlab; upload PDF bytes to `S3FileStore`; persist a `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, and `disclaimer_hash` (SHA-256 of the disclaimer text via `hashlib.sha256`); write a `VOUCHER_GENERATED` `AuditEvent`; return `200` with `voucher_pdf_id` and a signed download URL; record generation duration in `TelemetryRecord` (`metric_type = PDF_GENERATION_DURATION`); if generation fails, return `HTTPException(500)` and do NOT write any `AuditEvent` or transition status": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932722
+      }
+    ],
+    "28.2 Enforce status guard: if `request.status != AMIGA_REVIEWED`, return error stating the Request has not completed independent review": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932746
+      }
+    ],
+    "29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932767
+      }
+    ],
+    "29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932791
+      }
+    ],
+    "30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type=\"application/pdf\")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932814
+      }
+    ],
+    "30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932838
+      }
+    ],
+    "31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932866
+      }
+    ],
+    "32.1 Implement `GET /requests` FastAPI router with role-based and assignment-based filtering via `Depends(get_current_user)`:": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932899
+      }
+    ],
+    "32.2 Implement `POST /requests/{id}/reallocate` FastAPI router (Service Lead only): update `assigned_reviewer`; write a `REALLOCATED` `AuditEvent` with actor `user_id`, previous reviewer `user_id`, new reviewer `user_id`, and UTC timestamp": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932921
+      }
+    ],
+    "33.1 Implement the exception detail API — extend `GET /requests/{id}` to include in the Pydantic response: all active flags, per-flag details (`MISSING_EVIDENCE`: list of missing field names; `POSSIBLE_DUPLICATE`: matching request summaries with `request_id`/`status`/`invoice_date`/`total_amount`; calculation discrepancy: flagged field name + computed + extracted values)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932945
+      }
+    ],
+    "33.2 Build the `ExceptionPanel` React component: display all active flags with visual distinction (color/icon) and the flag identifier label; per-flag next-action instructions (supply missing field / compare matching request / correct inconsistent value); prevent approval action while EXCEPTION flags are active (hide/disable approve button)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932969
+      }
+    ],
+    "34.1 Build the `QueueDashboard` component: fetch `GET /requests`, display the filtered list in a table with columns for `request_id`, client name, vendor name, status, and submission timestamp; link each row to the appropriate detail screen (`ReviewWorkspace`, `VoucherPreview`, or read-only detail depending on status); measure and report page load time to `POST /telemetry/page-load` with `page = QUEUE_DASHBOARD`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874932993
+      }
+    ],
+    "35. Checkpoint — Browse the queue dashboard as each role; verify correct status filtering and client isolation. Open an EXCEPTION request and confirm all flag types and instructions render. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933018
+      }
+    ],
+    "36.1 Implement `GET /requests/{id}/audit` FastAPI router (Finance Reviewer, Service Lead, System Admin + active `ClientAssignment`): async SQLAlchemy query joining `AuditEvent` and `FieldRevision` for the given `request_id`; merge and sort by `occurred_at` / `revised_at` ascending; return combined timeline within 3 seconds; include for each event: `event_type`, `actor_id`, `payload`, UTC timestamp; include for each revision: `field_path`, `old_value`, `new_value`, `actor_id`, UTC timestamp": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933041
+      }
+    ],
+    "37.1 Build the `AuditTimeline` component accessible from the Request detail screen for Finance_Reviewers, Service_Leads, and System_Admins: render each event and revision in chronological order with event type, actor identity, UTC timestamp, and payload details; display field revisions with old/new value side by side; the component must be read-only": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933065
+      }
+    ],
+    "38.1 Write an Alembic migration that adds a table-level `RULE` or DDL trigger preventing `DELETE` on `AuditEvent` and `FieldRevision` rows with `occurred_at` / `revised_at` within 7 years of current date; document the cold-storage archival strategy in a `docs/audit-retention.md` file (no code execution required beyond the migration)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933090
+      }
+    ],
+    "39. Checkpoint — Submit a full workflow (upload → review → edit fields → approve → download); view the Audit Timeline and verify every event appears in correct chronological order. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933115
+      }
+    ],
+    "40.1 Implement `POST /telemetry/page-load` FastAPI internal router: accept Pydantic body `{ page: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PAGE_LOAD_DURATION`; if `duration_ms > 2000` (for queue dashboard or review workspace), also persist a breach event with `is_breach = True`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933140
+      }
+    ],
+    "40.2 Implement `POST /telemetry/pdf-generation` FastAPI internal router (called by Voucher Service): accept Pydantic body `{ job_id: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PDF_GENERATION_DURATION`; if `duration_ms > 3000`, persist a breach event": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933162
+      }
+    ],
+    "41.1 Implement `GET /telemetry/metrics` FastAPI router (Service Lead, System Admin only): use SQLAlchemy async queries with `percentile_cont` or in-Python computation to derive p50, p90, p99 durations, total measurement count, breach count, and `breach_rate = (breach_count / total_count * 100)` per `metric_type` from `TelemetryRecord`; cache aggregations and refresh at intervals ≤ 60 seconds (e.g., store last-computed result and `computed_at`; recompute only if `> 60s` old); return aggregated result": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933187
+      }
+    ],
+    "41.2 Implement `GET /telemetry/breaches` FastAPI router (Service Lead, System Admin only): return `TelemetryRecord` rows where `is_breach = True`, ordered by `measured_at` descending": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933213
+      }
+    ],
+    "42.1 Build the `TelemetryDashboard` component (Service Lead and System Admin only): display per-metric-type cards showing p50/p90/p99, total count, breach count, and breach rate; auto-refresh every 60 seconds; fetch from `GET /telemetry/metrics`": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933237
+      }
+    ],
+    "43. Checkpoint — Run several mock operations (fast extraction, slow extraction, fast PDF, slow PDF, fast page load, slow page load); check the telemetry dashboard shows correct p50/p90/p99 and breach records. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933261
+      }
+    ],
+    "44.1 Add `hypothesis` (with `hypothesis[numpy]` if needed) to `pyproject.toml` dev dependencies (`[project.optional-dependencies]` or `[tool.pytest.ini_options]`); create `backend/tests/pbt/` directory with `__init__.py` and `conftest.py` (async test setup with `pytest-asyncio`); configure Hypothesis settings in `conftest.py`: `settings.register_profile(\"ci\", max_examples=100)`; activate profile in `conftest.py` with `settings.load_profile(\"ci\")`; add `pytest` ini config to discover `tests/pbt/` automatically": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933287
+      }
+    ],
+    "46. Checkpoint — Run `pytest backend/tests/pbt/ -v` and confirm all 17 Hypothesis property tests pass with ≥ 100 examples each. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933313
+      }
+    ],
+    "49. Final checkpoint — Run the full test suite (`pytest backend/`, `pytest backend/tests/pbt/`, integration tests, performance tests); all required tasks pass. Review any remaining optional tasks with the user and decide whether to include them in the MVP. Ask the user if any questions arise.": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874933338
+      }
+    ],
+    "2. Define and apply the database schema": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791874970585
+      }
+    ],
+    "3. Configure file storage and message queue clients": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875483770
+      }
+    ],
+    "5. Implement User & Auth Service — data layer": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791875739468
+      }
+    ],
+    "10. Implement Request Service — data layer": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876188597
+      }
+    ],
+    "6. Implement JWT authentication": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876344531
+      }
+    ],
+    "7. Implement authorization dependencies (role + client assignment)": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791876639941
+      }
+    ],
+    "8. Implement User & Auth Service — HTTP routes": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791878986962
+      }
+    ],
+    "11. Implement invoice upload endpoint": [
+      {
+        "executionId": "58e3d389-75ff-480a-84c1-efaa6f2b7947",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791879002356
+      }
+    ],
+    "3.4 Create `backend/app/templates/voucher_default.html`: default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); `{{line_items_table}}` loops over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` loops over a list of dicts with keys `tax_type`, `subtotal`; styled with inline CSS for clean PDF rendering via WeasyPrint": [
+      {
+        "executionId": "7ede2dda-c2af-46cf-84ac-49864437a290",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791887351596
+      },
+      {
+        "executionId": "7ede2dda-c2af-46cf-84ac-49864437a290",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791887692378
+      }
+    ],
+    "2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version VARCHAR(100)` and `template_hash CHAR(64)` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) with its hardcoded rate mapping and all foreign key constraints; ensure exactly one `VoucherTemplate` row can be `is_active=TRUE` at a time": [
+      {
+        "executionId": "7ede2dda-c2af-46cf-84ac-49864437a290",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791888278782
+      },
+      {
+        "executionId": "7ede2dda-c2af-46cf-84ac-49864437a290",
+        "chatSessionId": "sess_e92d56bc-1d52-4262-8798-e83136286efa",
+        "timestamp": 1791888286600
+      }
+    ],
+    "2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version`, `template_hash` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) and all foreign key constraints": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603501
+      }
+    ],
+    "3.4 Create `backend/app/templates/voucher_default.html`: the default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); styled with inline CSS; `{{line_items_table}}` iterates over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` iterates over a list of dicts with keys `tax_type`, `subtotal`": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603543
+      }
+    ],
+    "3.5 Create `app/services/template_service.py`: `load_active_template(db) -> VoucherTemplate`; `seed_default_template(db)` — reads `app/templates/voucher_default.html` and inserts it as `version=\"v1.0\"` with `is_active=True` if no active template exists; add a `POST /admin/templates` endpoint (System Admin only) to upload a new template version and set it as active, deactivating the previous one": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603574
+      }
+    ],
+    "3.5 Create `app/services/template_service.py`: `load_active_template(db: AsyncSession) -> VoucherTemplate` that queries the single `is_active=True` row and raises if none found; `seed_default_template(db)` that reads `app/templates/voucher_default.html` and inserts it as `version=\"v1.0\"` with `is_active=True` if no active template exists (idempotent); add `POST /admin/templates` FastAPI endpoint (System Admin only) to upload a new Jinja2 template version (validated to contain all required placeholders), set it as `is_active=True`, and deactivate the previous active template in the same transaction": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603609
+      },
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900619217
+      },
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900792901
+      }
+    ],
+    "50.1 Create `app/models/tax_assignment.py`: `IndonesianTaxType` Python `enum.Enum` with values `PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`; `TAX_RATES: dict[IndonesianTaxType, Decimal]` with values `{PPH21: Decimal(\"0.0500\"), PPH22: Decimal(\"0.0150\"), PPH23: Decimal(\"0.0200\"), PPH25: Decimal(\"0.0200\"), PPN: Decimal(\"0.1100\"), NO_TAX: Decimal(\"0.0000\")}`; `TaxAssignment` SQLAlchemy model with `unique` constraint on `line_item_id` (one assignment per item)": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603642
+      }
+    ],
+    "50.2 Create `app/services/tax_service.py`: `compute_tax_amount(line_total: Decimal, tax_type: IndonesianTaxType) -> Decimal` using only `Decimal` multiplication (no `float`); `compute_tax_summary(tax_assignments: list[TaxAssignment], line_items: list[LineItem]) -> dict` returning `{\"per_type\": {tax_type: subtotal}, \"total_tax\": Decimal, \"grand_total\": Decimal}` where `grand_total = subtotal + total_tax`": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603673
+      }
+    ],
+    "50.3 Implement `PUT /requests/{id}/line-items/{line_item_id}/tax` FastAPI endpoint (Finance Reviewer + active ClientAssignment, Request must be in `READY_FOR_REVIEW` or `EXCEPTION` status): accept `{ tax_type: str }`; validate `tax_type` is a valid `IndonesianTaxType`; compute `tax_amount = compute_tax_amount(Decimal(str(line_item.line_total)), tax_type)`; upsert the `TaxAssignment` row; write a `FIELD_REVISED` AuditEvent recording old and new tax type and computed amount; return `{ line_item_id, tax_type, tax_rate, tax_amount }` — reject with `409` if Request is `AMIGA_REVIEWED` or later (locked)": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603701
+      }
+    ],
+    "50.4 Implement `GET /requests/{id}/tax-summary` FastAPI endpoint (Finance Reviewer + active ClientAssignment): return `{ line_items: [{..., tax_type, tax_rate, tax_amount}], per_type_subtotals: {type: subtotal}, total_tax, grand_total }` computed via `tax_service.compute_tax_summary`; if Request is `AMIGA_REVIEWED` or later, mark as `locked: true` in the response": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603727
+      }
+    ],
+    "51.1 For each extracted `LineItem` in the review workspace, render a dropdown selector with options: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), No Tax; display the computed tax amount next to each selector, updating on selection via `PUT /requests/{id}/line-items/{lid}/tax`": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603757
+      }
+    ],
+    "51.2 Render a live tax summary section below the line items table: per-type subtotals and grand total fetched from `GET /requests/{id}/tax-summary`; disable all selectors if Request is locked (`AMIGA_REVIEWED` or later)": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603785
+      }
+    ],
+    "28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; load the active `VoucherTemplate` via `template_service.load_active_template(db)`; build Jinja2 context from approved `HeaderFields`, `LineItems` (with their `TaxAssignment` rows), `PaymentDetails`, `tax_service.compute_tax_summary()` result, and `settings.AUTHORIZATION_DISCLAIMER`; render HTML using `jinja2.Environment(loader=BaseLoader()).from_string(template.template_content).render(context)`; convert to PDF using `weasyprint.HTML(string=rendered_html).write_pdf()`; compute `disclaimer_hash = sha256(disclaimer_text.encode()).hexdigest()` and `template_hash = sha256(rendered_html.encode()).hexdigest()`; upload PDF bytes to S3 at `vouchers/{request_id}/{voucher_pdf_id}.pdf`; persist `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, `template_version`, `disclaimer_hash`, `template_hash`; write `VOUCHER_GENERATED` AuditEvent; record generation duration in `TelemetryRecord`; SLA is **5 seconds** (updated from 3s); if generation fails return `HTTPException(500)` and do NOT write AuditEvent or transition status": [
+      {
+        "executionId": "878a56a7-c1d6-41a0-b28e-871316262e74",
+        "chatSessionId": "sess_bbe2a229-809e-4b60-a299-ff255385a778",
+        "timestamp": 1791900603817
+      }
+    ]
+  }
+}

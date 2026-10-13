@@ -14,21 +14,92 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+# ---------------------------------------------------------------------------
+# Pre-declare enum types with create_type=False so SQLAlchemy never tries to
+# CREATE them via op.create_table column processing — we manage DDL ourselves.
+# ---------------------------------------------------------------------------
+_userrole = postgresql.ENUM(
+    "CLIENT_PIC", "INTAKE_SUPPORT", "FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN",
+    name="userrole", create_type=False,
+)
+_requeststatus = postgresql.ENUM(
+    "QUEUED", "PROCESSING", "READY_FOR_REVIEW", "EXCEPTION",
+    "AMIGA_REVIEWED", "SENT_TO_CLIENT", "REJECTED",
+    name="requeststatus", create_type=False,
+)
+_extractionstatus = postgresql.ENUM(
+    "PENDING", "COMPLETE", "PARTIAL", "FAILED",
+    name="extractionstatus", create_type=False,
+)
+_lineextractionstatus = postgresql.ENUM(
+    "COMPLETE", "PARTIAL",
+    name="lineextractionstatus", create_type=False,
+)
+_auditeventtype = postgresql.ENUM(
+    "REQUEST_CREATED", "STATUS_CHANGED", "FLAG_APPLIED", "FLAG_DISMISSED",
+    "FIELD_REVISED", "APPROVED", "REJECTED", "DUPLICATE_DISMISSED", "REALLOCATED",
+    "VOUCHER_GENERATED", "VOUCHER_DOWNLOADED", "UNAUTHORIZED_APPROVAL_ATTEMPT",
+    "USER_MODIFIED", "PROCESSING_FAILED",
+    name="auditeventtype", create_type=False,
+)
+_metrictype = postgresql.ENUM(
+    "EXTRACTION_DURATION", "PAGE_LOAD_DURATION", "PDF_GENERATION_DURATION",
+    name="metrictype", create_type=False,
+)
+
 
 def upgrade() -> None:
-    # --- Enum types ---
-    op.execute("CREATE TYPE userrole AS ENUM ('CLIENT_PIC','INTAKE_SUPPORT','FINANCE_REVIEWER','SERVICE_LEAD','SYSTEM_ADMIN')")
-    op.execute("CREATE TYPE requeststatus AS ENUM ('QUEUED','PROCESSING','READY_FOR_REVIEW','EXCEPTION','AMIGA_REVIEWED','SENT_TO_CLIENT','REJECTED')")
-    op.execute("CREATE TYPE extractionstatus AS ENUM ('PENDING','COMPLETE','PARTIAL','FAILED')")
-    op.execute("CREATE TYPE lineextractionstatus AS ENUM ('COMPLETE','PARTIAL')")
-    op.execute(
-        "CREATE TYPE auditeventtype AS ENUM ("
-        "'REQUEST_CREATED','STATUS_CHANGED','FLAG_APPLIED','FLAG_DISMISSED',"
-        "'FIELD_REVISED','APPROVED','REJECTED','DUPLICATE_DISMISSED','REALLOCATED',"
-        "'VOUCHER_GENERATED','VOUCHER_DOWNLOADED','UNAUTHORIZED_APPROVAL_ATTEMPT',"
-        "'USER_MODIFIED','PROCESSING_FAILED')"
-    )
-    op.execute("CREATE TYPE metrictype AS ENUM ('EXTRACTION_DURATION','PAGE_LOAD_DURATION','PDF_GENERATION_DURATION')")
+    # --- Enum types (PostgreSQL does not support CREATE TYPE IF NOT EXISTS;
+    #     use DO blocks to swallow duplicate_object errors idempotently) ---
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE userrole AS ENUM (
+                'CLIENT_PIC','INTAKE_SUPPORT','FINANCE_REVIEWER',
+                'SERVICE_LEAD','SYSTEM_ADMIN'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE requeststatus AS ENUM (
+                'QUEUED','PROCESSING','READY_FOR_REVIEW','EXCEPTION',
+                'AMIGA_REVIEWED','SENT_TO_CLIENT','REJECTED'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE extractionstatus AS ENUM ('PENDING','COMPLETE','PARTIAL','FAILED');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE lineextractionstatus AS ENUM ('COMPLETE','PARTIAL');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE auditeventtype AS ENUM (
+                'REQUEST_CREATED','STATUS_CHANGED','FLAG_APPLIED','FLAG_DISMISSED',
+                'FIELD_REVISED','APPROVED','REJECTED','DUPLICATE_DISMISSED','REALLOCATED',
+                'VOUCHER_GENERATED','VOUCHER_DOWNLOADED','UNAUTHORIZED_APPROVAL_ATTEMPT',
+                'USER_MODIFIED','PROCESSING_FAILED'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE metrictype AS ENUM (
+                'EXTRACTION_DURATION','PAGE_LOAD_DURATION','PDF_GENERATION_DURATION'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
 
     # --- clients ---
     op.create_table(
@@ -43,7 +114,7 @@ def upgrade() -> None:
         "users",
         sa.Column("user_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("username", sa.String(200), nullable=False),
-        sa.Column("role", sa.Enum("CLIENT_PIC", "INTAKE_SUPPORT", "FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN", name="userrole", create_type=False), nullable=False),
+        sa.Column("role", _userrole, nullable=False),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -72,7 +143,7 @@ def upgrade() -> None:
         sa.Column("request_type", sa.String(100), nullable=False),
         sa.Column("channel", sa.String(100), nullable=False),
         sa.Column("request_date", sa.Date, nullable=False),
-        sa.Column("status", sa.Enum("QUEUED", "PROCESSING", "READY_FOR_REVIEW", "EXCEPTION", "AMIGA_REVIEWED", "SENT_TO_CLIENT", "REJECTED", name="requeststatus", create_type=False), nullable=False, server_default="QUEUED"),
+        sa.Column("status", _requeststatus, nullable=False, server_default="QUEUED"),
         sa.Column("flags", postgresql.ARRAY(sa.String), nullable=False, server_default="{}"),
         sa.Column("invoice_file_key", sa.String(500), nullable=False),
         sa.Column("invoice_page_count", sa.Integer, nullable=True),
@@ -86,7 +157,7 @@ def upgrade() -> None:
         sa.Column("draft_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("request_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("requests.request_id"), nullable=False, unique=True),
         sa.Column("ai_label_visible", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("extraction_status", sa.Enum("PENDING", "COMPLETE", "PARTIAL", "FAILED", name="extractionstatus", create_type=False), nullable=False, server_default="PENDING"),
+        sa.Column("extraction_status", _extractionstatus, nullable=False, server_default="PENDING"),
         sa.Column("extracted_at", sa.DateTime(timezone=True), nullable=True),
     )
 
@@ -117,7 +188,7 @@ def upgrade() -> None:
         sa.Column("unit", sa.String(50), nullable=True),
         sa.Column("unit_price", sa.Numeric(18, 4), nullable=True),
         sa.Column("line_total", sa.Numeric(18, 4), nullable=True),
-        sa.Column("extraction_status", sa.Enum("COMPLETE", "PARTIAL", name="lineextractionstatus", create_type=False), nullable=False, server_default="COMPLETE"),
+        sa.Column("extraction_status", _lineextractionstatus, nullable=False, server_default="COMPLETE"),
     )
 
     # --- payment_details ---
@@ -147,17 +218,7 @@ def upgrade() -> None:
         "audit_events",
         sa.Column("event_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("request_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("requests.request_id"), nullable=True),
-        sa.Column(
-            "event_type",
-            sa.Enum(
-                "REQUEST_CREATED", "STATUS_CHANGED", "FLAG_APPLIED", "FLAG_DISMISSED",
-                "FIELD_REVISED", "APPROVED", "REJECTED", "DUPLICATE_DISMISSED", "REALLOCATED",
-                "VOUCHER_GENERATED", "VOUCHER_DOWNLOADED", "UNAUTHORIZED_APPROVAL_ATTEMPT",
-                "USER_MODIFIED", "PROCESSING_FAILED",
-                name="auditeventtype", create_type=False,
-            ),
-            nullable=False,
-        ),
+        sa.Column("event_type", _auditeventtype, nullable=False),
         sa.Column("actor_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.user_id"), nullable=True),
         sa.Column("payload", postgresql.JSONB, nullable=False, server_default="{}"),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -178,7 +239,7 @@ def upgrade() -> None:
     op.create_table(
         "telemetry_records",
         sa.Column("record_id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("metric_type", sa.Enum("EXTRACTION_DURATION", "PAGE_LOAD_DURATION", "PDF_GENERATION_DURATION", name="metrictype", create_type=False), nullable=False),
+        sa.Column("metric_type", _metrictype, nullable=False),
         sa.Column("subject_id", sa.String(500), nullable=False),
         sa.Column("duration_ms", sa.BigInteger, nullable=False),
         sa.Column("page_count", sa.Integer, nullable=True),
