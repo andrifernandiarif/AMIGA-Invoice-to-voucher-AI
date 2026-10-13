@@ -16,10 +16,10 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 - [x] 1. Initialize monorepo structure and tooling
   - Create `backend/` (Python 3.12+ with FastAPI) and `frontend/` (React + TypeScript + Vite) project skeletons
-  - Create `backend/pyproject.toml` with all runtime and dev dependencies: `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic[email]`, `pydantic-settings`, `pyjwt`, `boto3`, `rq`, `redis`, `weasyprint` (or `reportlab`), `jinja2==3.1.4`, `pytest`, `pytest-asyncio`, `hypothesis`, `httpx`, `moto`, `ruff` — all with pinned versions; add `jinja2==3.1.4` to both `requirements.txt` and `requirements-dev.txt` (must be explicit even if a transitive dep of moto)
+  - Create `backend/pyproject.toml` with all runtime and dev dependencies: `fastapi`, `uvicorn`, `sqlalchemy[asyncio]`, `alembic`, `asyncpg`, `pydantic[email]`, `pydantic-settings`, `pyjwt`, `boto3`, `weasyprint` (or `reportlab`), `jinja2==3.1.4`, `pytest`, `pytest-asyncio`, `hypothesis`, `httpx`, `moto`, `ruff` — all with pinned versions; add `jinja2==3.1.4` to both `requirements.txt` and `requirements-dev.txt` (must be explicit even if a transitive dep of moto)
   - Configure `ruff` for linting and formatting in `pyproject.toml` (`[tool.ruff]` section)
-  - Install PostgreSQL 16+ and Redis 7+ natively on your machine (e.g. `brew install postgresql@16 redis`); create the `amiga_db` database and start both services
-  - Populate `backend/.env` with all environment variables from the design: `DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_SECONDS`, `EXTRACTION_PROVIDER`, `BEDROCK_MODEL_ID`, `CALCULATION_TOLERANCE`, `AUTHORIZATION_DISCLAIMER`
+  - Install PostgreSQL 16+ natively on your machine (e.g. `brew install postgresql@16`); create the `amiga_db` database and start it
+  - Populate `backend/.env` with all environment variables from the design: `DATABASE_URL`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_SECONDS`, `EXTRACTION_PROVIDER`, `BEDROCK_MODEL_ID`, `CALCULATION_TOLERANCE`, `AUTHORIZATION_DISCLAIMER`
   - Create `frontend/` React + TypeScript + Vite skeleton with `package.json`
   - _Requirements: foundational for all_
 
@@ -31,6 +31,8 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - _Requirements: 2.1, 11.1, 17.1_
   - [x] 2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version`, `template_hash` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) and all foreign key constraints
     - _Requirements: 1.9, 21.1, 22.2, 22.8_
+  - [x] 2.4 Write Alembic migration `0003_extraction_job_queue.py` for the `ExtractionJob` table: `job_id UUID PK DEFAULT uuid_generate_v4()`, `request_id UUID FK → Request NOT NULL`, `status extraction_job_status ENUM(PENDING, IN_PROGRESS, DONE, FAILED) DEFAULT PENDING`, `retry_count INT DEFAULT 0`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `started_at TIMESTAMPTZ`, `completed_at TIMESTAMPTZ`, `error_detail TEXT`; add index on `(status, created_at)` to support efficient polling
+    - _Requirements: 4.1_
   - [ ]* 2.2 Write pytest tests for schema constraints (unique username, immutable `request_id`, audit-table trigger rejects `UPDATE`/`DELETE`)
     - _Requirements: 2.1, 11.1_
   - [x] 2.3 Write Alembic migration `0002_evidence_files_tax_template.py` for the four new entities: `EvidenceFile`, `TaxAssignment`, `VoucherTemplate`, and the updated `VoucherPDF` schema (adding `template_version VARCHAR(100)` and `template_hash CHAR(64)` columns); include the `indonesiantaxtype` enum (`PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`) with its hardcoded rate mapping and all foreign key constraints; ensure exactly one `VoucherTemplate` row can be `is_active=TRUE` at a time
@@ -39,13 +41,13 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 - [x] 3. Configure file storage and message queue clients
   - [x] 3.1 Implement `app/storage.py`: `S3FileStore` class using the `boto3` S3 client (standard AWS regional endpoint — no custom endpoint override); expose `async upload(key: str, data: bytes, content_type: str) -> None` and `async download(key: str) -> bytes` methods; read bucket and region from `Pydantic Settings` (`S3_BUCKET`, `AWS_REGION`); credentials resolved from the AWS credential provider chain (env vars, IAM role, or `~/.aws/credentials`)
     - _Requirements: 1.1, 15.1_
-  - [x] 3.2 Implement `app/queue.py`: `get_redis_connection() -> Redis` and `get_extraction_queue() -> Queue` helpers using `rq`'s built-in `Queue` class; queue name: `amiga-extraction`
+  - [x] 3.2 Implement `app/services/extraction_worker.py`: PostgreSQL-based job queue polling loop; uses `SELECT ... FOR UPDATE SKIP LOCKED` to claim `PENDING` `ExtractionJob` rows atomically; polls every 2 seconds; marks job `IN_PROGRESS` on pickup, `DONE` on success; on failure increments `retry_count` and resets to `PENDING`; after `retry_count >= 3` marks `FAILED` and transitions Request to `EXCEPTION` with a `PROCESSING_FAILED` AuditEvent; started as an asyncio background task via FastAPI `lifespan` in `app/main.py` — no separate worker process needed
     - _Requirements: 4.1_
   - [x] 3.4 Create `backend/app/templates/voucher_default.html`: the default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); styled with inline CSS; `{{line_items_table}}` iterates over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` iterates over a list of dicts with keys `tax_type`, `subtotal`
     - _Requirements: 22.1, 22.3, 22.5_
   - [x] 3.5 Create `app/services/template_service.py`: `load_active_template(db) -> VoucherTemplate`; `seed_default_template(db)` — reads `app/templates/voucher_default.html` and inserts it as `version="v1.0"` with `is_active=True` if no active template exists; add a `POST /admin/templates` endpoint (System Admin only) to upload a new template version and set it as active, deactivating the previous one
     - _Requirements: 22.1, 22.2_
-  - [ ]* 3.3 Write pytest tests for `S3FileStore` (using `moto` to mock the boto3 S3 client) and for the RQ queue helpers (using a fakeredis or mocked Redis connection)
+  - [ ]* 3.3 Write pytest tests for `S3FileStore` (using `moto` to mock the boto3 S3 client) and for the PostgreSQL job queue polling loop (using a test database session — insert a `PENDING` job, run one polling iteration, verify it transitions to `IN_PROGRESS`)
     - _Requirements: 1.1, 4.1_
 
 - [x] 3.4 Create `backend/app/templates/voucher_default.html`: default Jinja2 HTML voucher template containing all required placeholders (`{{vendor_name}}`, `{{invoice_number}}`, `{{invoice_date}}`, `{{line_items_table}}`, `{{tax_summary_table}}`, `{{subtotal}}`, `{{total_tax}}`, `{{grand_total}}`, `{{bank_account_number}}`, `{{bank_name}}`, `{{payment_reference}}`, `{{authorization_disclaimer}}`); `{{line_items_table}}` loops over a list of dicts with keys `description`, `quantity`, `unit`, `unit_price`, `line_total`, `tax_type`, `tax_amount`; `{{tax_summary_table}}` loops over a list of dicts with keys `tax_type`, `subtotal`; styled with inline CSS for clean PDF rendering via WeasyPrint
@@ -96,7 +98,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 3: Missing Metadata Fields Named in Error**
     - **Validates: Requirements 1.7, 19.7**
 
-- [ ] 9. Checkpoint — Run all Phase 2 tests. Ensure auth dependencies correctly gate a sample protected route. Ask the user if any questions arise.
+- [x] 9. Checkpoint — Run all Phase 2 tests. Ensure auth dependencies correctly gate a sample protected route. Ask the user if any questions arise.
 
 ---
 
@@ -125,20 +127,20 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 2: Invalid File Formats and Sizes Rejected**
     - **Validates: Requirements 1.2, 1.3**
 
-- [ ] 12. Enqueue extraction job
-  - [ ] 12.1 After a Request is persisted in `QUEUED` status, enqueue an `extract_invoice` RQ job via `extraction_queue.enqueue(extract_invoice, extraction_job)` where `extraction_job` is an `ExtractionJob` dataclass with `request_id`, `file_key`, and `invoice_page_count`; update Request status to `PROCESSING`; write a `STATUS_CHANGED` (`QUEUED → PROCESSING`) `AuditEvent`
+- [x] 12. Enqueue extraction job
+  - [x] 12.1 After a Request is persisted in `QUEUED` status, insert an `ExtractionJob` row into the `extraction_jobs` table with `status=PENDING`, `request_id`, and `invoice_page_count`; the extraction worker will set Request status to `PROCESSING` when it picks up the job
     - _Requirements: 4.1_
-  - [ ]* 12.2 Write pytest tests verifying the status transition to `PROCESSING` and the `AuditEvent` are written, and the RQ job is enqueued with the correct payload
+  - [ ]* 12.2 Write pytest tests verifying that uploading a Request inserts an `ExtractionJob` row with `status=PENDING` and the correct `request_id`; and that when the extraction worker processes it, the Request status transitions to `PROCESSING` and a `STATUS_CHANGED` `AuditEvent` is written
     - _Requirements: 4.1_
 
-- [ ] 13. Checkpoint — Confirm end-to-end: upload a PDF via `POST /requests`, see `QUEUED` request in DB, verify extraction job appears in Redis queue. Ask the user if any questions arise.
+- [x] 13. Checkpoint — Confirm end-to-end: upload a PDF via `POST /requests`, see `QUEUED` request in DB, verify an `ExtractionJob` row appears in the `extraction_jobs` PostgreSQL table with `status=PENDING`. Ask the user if any questions arise.
 
 ---
 
 ### Phase 4: AI Extraction Pipeline
 
 - [ ] 14. Implement Robot Admin Engine — PDF extraction
-  - [ ] 14.1 Create `worker/jobs/extraction.py`: `extract_invoice(job: ExtractionJob)` RQ job function; fetch PDF bytes from `S3FileStore`; check idempotency (if `Draft` already exists for `request_id`, skip creation and proceed to validation); call `ExtractionProvider.extract(pdf_bytes, request_id)` — provider selected via `EXTRACTION_PROVIDER` env var (`"mock"` or `"bedrock"`); persist `Draft`, `HeaderFields`, `LineItem[]`, and `PaymentDetails` records to the DB; record `start_time` (from the moment status transitioned to `PROCESSING`) and `end_time` for telemetry; on RQ job failure after 3 retries (exponential backoff: 30s, 60s, 120s), transition Request to `EXCEPTION` with a `PROCESSING_FAILED` `AuditEvent`
+  - [ ] 14.1 In `app/services/extraction_worker.py`: implement `process_extraction_job(job: ExtractionJob, db: AsyncSession)` — set Request status to `PROCESSING`; fetch all Evidence File bytes from `S3FileStore`; check idempotency (if `Draft` already exists for `request_id`, skip creation and proceed to validation); call `ExtractionProvider.extract(evidence_files, request_id)` — provider selected via `EXTRACTION_PROVIDER` env var (`"mock"` or `"bedrock"`); persist `Draft`, `HeaderFields`, `LineItem[]`, and `PaymentDetails` records to the DB; record `start_time` (from the moment status transitioned to `PROCESSING`) and `end_time` for telemetry; on failure increment `retry_count`; after `retry_count >= 3` set `ExtractionJob.status = FAILED` and transition Request to `EXCEPTION` with a `PROCESSING_FAILED` `AuditEvent`
     - _Requirements: 4.1, 4.3, 4.4, 5.1, 5.2, 20.1_
   - [ ] 14.2 After persisting extraction output, call `ValidationEngine.run(draft, db)` to collect flags; update Request status to `READY_FOR_REVIEW` (no flags) or `EXCEPTION` (at least one flag); write `STATUS_CHANGED` and `FLAG_APPLIED` `AuditEvent`s via `AuditService`
     - _Requirements: 4.2, 4.6, 5.3, 6.1, 6.2_
@@ -460,7 +462,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 - Implementation language is **Python 3.12+** (backend: FastAPI + SQLAlchemy 2.x async) and **TypeScript** (frontend: React + Vite).
 - PBT library: **Hypothesis** (`pip install hypothesis`). Each property test uses `@given` with `hypothesis.strategies` and `@settings(max_examples=100)`. Each test file is tagged with a comment: `# Feature: invoice-to-voucher, Property {N}: {property_text}`.
 - Web framework: **FastAPI** with `Depends()` for auth, role checks, and client assignment enforcement — replaces Express middleware.
-- Background worker: **RQ** (`rq worker amiga-extraction`); `extract_invoice` job in `worker/jobs/extraction.py`; retries 3 times with exponential backoff (30s, 60s, 120s).
+- Background worker: **asyncio polling loop** started via FastAPI `lifespan` in `app/main.py`; `process_extraction_job` in `app/services/extraction_worker.py`; polls `extraction_jobs` table every 2 seconds using `SELECT ... FOR UPDATE SKIP LOCKED`; retries up to 3 times (tracked in `retry_count` column); no Redis or separate worker process needed.
 - Database ORM: **SQLAlchemy 2.x async** with **Alembic** migrations — replaces Knex/Prisma.
 - PDF generation (backend): **Jinja2** renders the active `VoucherTemplate` HTML; **WeasyPrint** converts to PDF. Template stored in `VoucherTemplate` DB table, seeded from `app/templates/voucher_default.html`. Template version, `template_hash` (SHA-256 of rendered HTML), and `disclaimer_hash` (SHA-256 of disclaimer text) are recorded in `VoucherPDF` for auditability.
 - File storage: **boto3** S3 client connecting to real AWS S3 in all environments. EvidenceFiles stored at `evidence/{request_id}/{order}_{filename}`; VoucherPDFs stored at `vouchers/{request_id}/{voucher_pdf_id}.pdf`. Use a dedicated development bucket. In AWS-hosted environments, attach an IAM role — never hardcode credentials. For the test suite, S3 calls are mocked with `moto`.

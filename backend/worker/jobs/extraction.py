@@ -48,14 +48,14 @@ def _get_session_factory() -> async_sessionmaker:
 
 @dataclass
 class ExtractionJob:
-    request_id: str                          # UUID as string (RQ serializes to JSON)
-    evidence_file_keys: list[str]            # S3 keys in upload_order
-    evidence_content_types: list[str]        # matching content_type per file
+    request_id: uuid.UUID                    # UUID of the Request to process
+    file_key: str                            # S3 key of the primary invoice file
+    invoice_page_count: int                  # page count (0 if unknown at upload time)
 
 
 async def _run_extraction(job: ExtractionJob) -> None:
     """Async core of the extraction job — called by the sync RQ entry point."""
-    request_id = uuid.UUID(job.request_id)
+    request_id = job.request_id if isinstance(job.request_id, uuid.UUID) else uuid.UUID(str(job.request_id))
     provider = get_extraction_provider()
     SessionLocal = _get_session_factory()
     start_time = datetime.now(timezone.utc)
@@ -71,11 +71,17 @@ async def _run_extraction(job: ExtractionJob) -> None:
             await db.commit()
             return
 
-        # ── Fetch evidence files from S3 ──────────────────────────────────────
-        evidence_files: list[tuple[bytes, str]] = []
-        for key, ct in zip(job.evidence_file_keys, job.evidence_content_types):
-            file_bytes = await file_store.download(key)
-            evidence_files.append((file_bytes, ct))
+        # ── Fetch evidence file from S3 ────────────────────────────────────────
+        file_bytes = await file_store.download(job.file_key)
+        # Infer content type from file key extension; default to PDF
+        key_lower = job.file_key.lower()
+        if key_lower.endswith(".png"):
+            content_type = "image/png"
+        elif key_lower.endswith(".jpg") or key_lower.endswith(".jpeg"):
+            content_type = "image/jpeg"
+        else:
+            content_type = "application/pdf"
+        evidence_files: list[tuple[bytes, str]] = [(file_bytes, content_type)]
 
         # ── Call extraction provider ───────────────────────────────────────────
         result: ExtractionResult = await provider.extract(evidence_files, request_id)
@@ -270,12 +276,12 @@ def extract_invoice(job: ExtractionJob) -> None:
     except Exception as exc:
         logger.exception("extract_invoice failed for request %s: %s", job.request_id, exc)
         # Mark request as EXCEPTION + log PROCESSING_FAILED
-        asyncio.run(_mark_processing_failed(job.request_id, str(exc)))
+        asyncio.run(_mark_processing_failed(str(job.request_id), str(exc)))
         raise  # Re-raise so RQ registers the failure and retries
 
 
 async def _mark_processing_failed(request_id_str: str, error: str) -> None:
-    request_id = uuid.UUID(request_id_str)
+    request_id = uuid.UUID(str(request_id_str))
     SessionLocal = _get_session_factory()
     async with SessionLocal() as db:
         from sqlalchemy import update

@@ -20,3 +20,4 @@ from app.models.request import InvoiceRequest, RequestStatus  # noqa: E402, F401
 from app.models.telemetry import MetricType, TelemetryRecord  # noqa: E402, F401
 from app.models.user import User, UserRole  # noqa: E402, F401
 from app.models.voucher import VoucherPDF, VoucherTemplate  # noqa: E402, F401
+from app.models.extraction_job import ExtractionJob, ExtractionJobStatus  # noqa: E402, F401

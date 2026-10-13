@@ -16,7 +16,7 @@ AMIGA Robot Admin is an internal platform that transforms vendor invoice PDFs in
 
 ## Architecture
 
-The system is deployed as a **modular monolith with a separately deployed background worker** — not microservices. The FastAPI application handles all HTTP traffic, while a dedicated RQ Worker process handles background extraction jobs.
+The system is deployed as a **modular monolith** — not microservices. The FastAPI application handles all HTTP traffic and runs the background extraction worker in the same process via an `asyncio` background task.
 
 ```mermaid
 graph TB
@@ -29,7 +29,7 @@ graph TB
     end
 
     subgraph "Background Processing"
-        RQ_W[RQ Worker<br/>Extraction Worker Process]
+        EW[Extraction Worker<br/>asyncio background task]
     end
 
     subgraph "Core Modules"
@@ -50,7 +50,7 @@ graph TB
     subgraph "Storage"
         PDB[(PostgreSQL)]
         FS[AWS S3<br/>File Store]
-        RQ_Q[Redis<br/>RQ Queue]
+        JQ[PostgreSQL<br/>Job Queue Table]
     end
 
     UI --> FA
@@ -59,21 +59,20 @@ graph TB
     FA --> VS
     FA --> TS
     RS --> AUS
-    RS --> RQ_Q
-    RQ_Q --> RQ_W
-    RQ_W --> EP
+    RS --> JQ
+    JQ --> EW
+    EW --> EP
     EP --> MOCK
     EP --> BEDROCK
-    RQ_W --> VAL
-    RQ_W --> PDB
-    RQ_W --> AUS
+    EW --> VAL
+    EW --> PDB
+    EW --> AUS
     VS --> FS
     VS --> PDB
     AUS --> PDB
     US --> PDB
     RS --> PDB
     TS --> PDB
-    TS --> RQ_Q
 ```
 
 ### Tech Stack
@@ -85,10 +84,9 @@ graph TB
 - SQLAlchemy 2.x with async support for database access
 - Alembic for database migrations
 - PostgreSQL as the primary relational database (NUMERIC(18,4) for all financial values)
+- PostgreSQL job queue (via `SELECT FOR UPDATE SKIP LOCKED` polling) — no Redis required
 - boto3 for AWS SDK integration (S3 + Bedrock)
 - PyJWT for JWT authentication
-- RQ (Redis Queue) for background job queue
-- Redis as the message broker
 - jinja2 for HTML template rendering (explicit dependency)
 - weasyprint for HTML-to-PDF conversion
 - pytest + pytest-asyncio for unit and integration testing
@@ -102,7 +100,7 @@ graph TB
 **Storage:**
 - PostgreSQL (primary database)
 - AWS S3 for file storage (EvidenceFiles and VoucherPDFs are both stored in S3, scoped by request_id; real S3 bucket used in all environments, including local development)
-- Redis (job queue + optional telemetry cache)
+- PostgreSQL job queue table (`extraction_jobs`) — no Redis required
 
 ### Component Responsibilities
 
@@ -115,7 +113,7 @@ graph TB
 | **Audit Service** | Python module for append-only event writes and chronological reads |
 | **Voucher Service** | Python module for preview + PDF generation (using WeasyPrint or reportlab) |
 | **Telemetry Service** | Python module measuring durations, recording breach events, serving aggregated metrics |
-| **RQ Worker** | Separate Python process; dequeues extraction jobs from Redis via RQ; calls ExtractionProvider |
+| **Extraction Worker** | asyncio background task running inside FastAPI; polls `extraction_jobs` table every 2 s using `SELECT FOR UPDATE SKIP LOCKED`; calls ExtractionProvider |
 | **Extraction Provider Interface** | Abstract base class (ABC) with `extract(pdf_bytes) -> ExtractionResult` |
 | **Mock Provider** | Returns configurable fixture data; no AWS credentials required |
 | **Bedrock Provider** | Calls Amazon Bedrock Runtime via boto3; selected model is configurable; credentials from AWS credential provider chain (IAM roles preferred; no hardcoded keys) |
@@ -142,10 +140,8 @@ invoice_to_voucher/
 │   │   ├── templates/
 │   │   │   └── voucher_default.html   # default Jinja2 voucher template
 │   │   └── validation/          # Completeness, calculation, duplicate validators
-│   └── worker/
-│       ├── main.py              # RQ worker entry point
-│       └── jobs/
-│           └── extraction.py    # extract_invoice job function
+│   │   └── services/
+│   │       └── extraction_worker.py  # asyncio polling loop + extract_invoice function
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts
@@ -159,9 +155,6 @@ invoice_to_voucher/
 
 # Database — install PostgreSQL 16+ natively (e.g. brew install postgresql@16)
 DATABASE_URL=postgresql+asyncpg://amiga:amiga@localhost:5432/amiga_db
-
-# Redis — install Redis 7+ natively (e.g. brew install redis)
-REDIS_URL=redis://localhost:6379/0
 
 # File Storage — real AWS S3 (used in all environments; no local emulator)
 S3_BUCKET=bedrock-kb-student1-1791858842
@@ -183,7 +176,7 @@ CALCULATION_TOLERANCE=0.01
 AUTHORIZATION_DISCLAIMER=This voucher is prepared for client review purposes only. Payment authorization remains with the client.
 ```
 
-**Local development setup**: Install PostgreSQL 16+ and Redis 7+ natively on your machine (e.g. via Homebrew: `brew install postgresql@16 redis`). Create the `amiga_db` database and start both services before running the API or worker. AWS S3 credentials must point to a real bucket — use a dedicated development bucket (e.g. `bedrock-kb-student1-1791858842`) to keep dev and production data separate.
+**Local development setup**: Install PostgreSQL 16+ natively on your machine (e.g. via Homebrew: `brew install postgresql@16`). Create the `amiga_db` database and start it before running the API. No Redis is needed — the extraction job queue runs inside PostgreSQL. AWS S3 credentials must point to a real bucket — use a dedicated development bucket (e.g. `bedrock-kb-student1-1791858842`) to keep dev and production data separate.
 
 **In AWS-hosted environments**: Do NOT set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. Attach an IAM role to the instance or task instead — boto3 resolves credentials from the standard AWS credential provider chain automatically.
 
@@ -552,8 +545,8 @@ stateDiagram-v2
 | Transition | Trigger | Guard Conditions |
 |---|---|---|
 | `QUEUED → PROCESSING` | Extraction queue picks up job | None (automatic) |
-| `PROCESSING → READY_FOR_REVIEW` | RQ Worker signals extraction complete | No flags raised |
-| `PROCESSING → EXCEPTION` | RQ Worker signals extraction complete | At least one flag raised (MISSING_EVIDENCE or calculation discrepancy) |
+| `PROCESSING → READY_FOR_REVIEW` | Extraction worker signals extraction complete | No flags raised |
+| `PROCESSING → EXCEPTION` | Extraction worker signals extraction complete | At least one flag raised (MISSING_EVIDENCE or calculation discrepancy) |
 | `READY_FOR_REVIEW → AMIGA_REVIEWED` | `POST /requests/{id}/approve` | Actor role = FINANCE_REVIEWER; actor ≠ uploader; no active EXCEPTION flags |
 | `READY_FOR_REVIEW → REJECTED` | `POST /requests/{id}/reject` | Actor role = FINANCE_REVIEWER; actor ≠ uploader; rejection reason 1–500 chars present |
 | `EXCEPTION → READY_FOR_REVIEW` | Finance Reviewer resolves all flags | All flags cleared |
@@ -569,22 +562,24 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant RS as Request Service
-    participant RQ_Q as Redis (RQ Queue)
-    participant RQ_W as RQ Worker
+    participant JQ as PostgreSQL Job Queue
+    participant EW as Extraction Worker (asyncio)
     participant EP as ExtractionProvider
     participant PDB as Database
     participant AUS as Audit Service
 
-    RS->>RQ_Q: Enqueue extraction job (request_id, file_key)
-    RS->>PDB: Set status = PROCESSING
-    RS->>AUS: Log STATUS_CHANGED event (QUEUED → PROCESSING)
-    RQ_Q-->>RQ_W: Deliver job
-    RQ_W->>EP: extract(pdf_bytes, request_id)
-    EP-->>RQ_W: ExtractionResult (HeaderFields, LineItems, PaymentDetails)
-    RQ_W->>PDB: Write Draft, HeaderFields, LineItems, PaymentDetails
-    RQ_W->>RQ_W: Run validation rules (completeness, calculation, duplicate)
-    RQ_W->>PDB: Apply flags, set status (READY_FOR_REVIEW or EXCEPTION)
-    RQ_W->>AUS: Log STATUS_CHANGED + any FLAG_APPLIED events
+    RS->>JQ: INSERT ExtractionJob row (status=PENDING)
+    EW->>JQ: Poll every 2s — SELECT FOR UPDATE SKIP LOCKED
+    JQ-->>EW: Deliver PENDING job
+    EW->>PDB: Set Request status = PROCESSING
+    EW->>AUS: Log STATUS_CHANGED event (QUEUED → PROCESSING)
+    EW->>EP: extract(evidence_files, request_id)
+    EP-->>EW: ExtractionResult (HeaderFields, LineItems, PaymentDetails)
+    EW->>PDB: Write Draft, HeaderFields, LineItems, PaymentDetails
+    EW->>EW: Run validation rules (completeness, calculation, duplicate)
+    EW->>PDB: Apply flags, set status (READY_FOR_REVIEW or EXCEPTION)
+    EW->>JQ: UPDATE ExtractionJob status = DONE
+    EW->>AUS: Log STATUS_CHANGED + any FLAG_APPLIED events
 ```
 
 ### Validation Rules
@@ -733,29 +728,52 @@ Switch from mock to Bedrock by setting `EXTRACTION_PROVIDER=bedrock` and providi
 
 ## Background Worker Design
 
-### RQ Worker Architecture
+### PostgreSQL Job Queue Architecture
 
-The extraction worker is a **separate Python process** from the FastAPI application. It runs as a separate process alongside the API locally and as a separate process/task in production.
+The extraction worker runs as an **asyncio background task inside the FastAPI process** — no separate worker process or Redis is needed. This is the simplest approach for a PoC.
 
 ```
-FastAPI app  →  enqueues job to Redis (via RQ)  →  RQ Worker dequeues  →  calls ExtractionProvider  →  runs validation  →  updates DB  →  logs audit events
+FastAPI app  →  INSERT ExtractionJob (PENDING)  →  asyncio polling loop (every 2 s)  →  SELECT FOR UPDATE SKIP LOCKED  →  calls ExtractionProvider  →  runs validation  →  updates DB  →  logs audit events
 ```
 
-**Job structure:**
+### ExtractionJob Table
+
+```
+ExtractionJob {
+  job_id            UUID (PK, default uuid4)
+  request_id        UUID (FK → Request)
+  status            ENUM(PENDING, IN_PROGRESS, DONE, FAILED) DEFAULT PENDING
+  retry_count       INT DEFAULT 0
+  created_at        TIMESTAMPTZ
+  started_at        TIMESTAMPTZ (nullable)
+  completed_at      TIMESTAMPTZ (nullable)
+  error_detail      TEXT (nullable)
+}
+```
+
+### Polling Loop
+
+The loop is started via FastAPI's `lifespan` context manager in `app/main.py`:
 
 ```python
-@dataclass
-class ExtractionJob:
-    request_id: UUID
-    file_key: str
-    invoice_page_count: int
-    enqueued_at: datetime
+async def extraction_polling_loop(db_session_factory):
+    while True:
+        async with db_session_factory() as db:
+            job = await db.execute(
+                select(ExtractionJob)
+                .where(ExtractionJob.status == "PENDING")
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+            job = job.scalar_one_or_none()
+            if job:
+                await process_extraction_job(job, db)
+        await asyncio.sleep(2)
 ```
 
 **Retry and failure behavior:**
-- RQ retries failed jobs up to 3 times with exponential backoff (30s, 60s, 120s)
-- After 3 failures, job moves to the RQ failed queue; Request status transitions to EXCEPTION with a `PROCESSING_FAILED` detail in the AuditEvent payload
-- Worker crash recovery: RQ's built-in job visibility timeout ensures jobs are re-queued if a worker dies mid-execution
+- On job failure, `retry_count` is incremented and status is reset to `PENDING`
+- After 3 failures (`retry_count >= 3`), status is set to `FAILED`; Request status transitions to `EXCEPTION` with a `PROCESSING_FAILED` detail in the AuditEvent payload
 
 **Idempotency:**
 - Before creating a Draft, the worker checks if a Draft already exists for the `request_id` (unique constraint on `Draft.request_id`)
@@ -1034,7 +1052,7 @@ Each property test is tagged with a comment referencing the design property:
 
 ### Integration Testing
 
-Integration tests with 1–3 representative examples cover, using **pytest** with a local PostgreSQL instance (started natively) and local Redis. AWS S3 calls are mocked with the `moto` library — no real S3 bucket is required for the test suite:
+Integration tests with 1–3 representative examples cover, using **pytest** with a local PostgreSQL instance (started natively). No Redis is needed. AWS S3 calls are mocked with the `moto` library — no real S3 bucket is required for the test suite:
 
 - End-to-end upload → extraction → review → approve → PDF download flow
 - Telemetry breach events are written when SLA thresholds are exceeded
