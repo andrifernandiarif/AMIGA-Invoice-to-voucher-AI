@@ -1,0 +1,45 @@
+[project]
+name = "amiga-robot-admin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+    "sqlalchemy[asyncio]==2.0.36",
+    "alembic==1.14.0",
+    "asyncpg==0.30.0",
+    "pydantic[email]==2.10.2",
+    "pydantic-settings==2.6.1",
+    "pyjwt==2.10.0",
+    "boto3==1.35.76",
+    "rq==2.0.0",
+    "redis==5.2.0",
+    "reportlab==4.2.5",
+    "python-multipart==0.0.17",
+    "httpx==0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+    "hypothesis==6.119.3",
+    "moto[s3]==5.0.21",
+    "fakeredis==2.26.1",
+    "ruff==0.8.2",
+    "anyio[trio]==4.7.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+select = ["E", "F", "I", "UP"]
+fix = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"

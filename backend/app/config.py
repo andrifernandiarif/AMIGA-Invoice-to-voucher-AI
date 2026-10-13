@@ -1,0 +1,38 @@
+from typing import Literal
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    # Database — native PostgreSQL
+    DATABASE_URL: str = "postgresql+asyncpg://amiga:amiga@localhost:5432/amiga_db"
+
+    # Redis — native Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # File Storage — real AWS S3 (no local emulator)
+    S3_BUCKET: str = "bedrock-kb-student1-1791858842"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "ap-southeast-1"
+
+    # Auth
+    JWT_SECRET: str = "change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRY_SECONDS: int = 3600
+
+    # Extraction
+    EXTRACTION_PROVIDER: Literal["mock", "bedrock"] = "mock"
+    BEDROCK_MODEL_ID: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+    # Business rules
+    CALCULATION_TOLERANCE: str = "0.01"
+    AUTHORIZATION_DISCLAIMER: str = (
+        "This voucher is prepared for client review purposes only. "
+        "Payment authorization remains with the client."
+    )
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+settings = Settings()
