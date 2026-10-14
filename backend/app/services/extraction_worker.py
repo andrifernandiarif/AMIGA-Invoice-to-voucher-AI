@@ -35,6 +35,7 @@ from app.providers import get_extraction_provider
 from app.repositories.request_repository import request_repository
 from app.schemas.extraction import ExtractionResult
 from app.services.audit_service import log_event
+from app.services.telemetry_service import TelemetryService
 from app.storage import file_store
 from app.validation.engine import run_validation
 
@@ -122,6 +123,7 @@ async def _persist_extraction(
             rounding_adj=float(h.rounding_adj) if h.rounding_adj is not None else None,
         )
         db.add(header_orm)
+        await db.flush()
 
     line_item_orms: list[LineItem] = []
     for li in result.line_items:
@@ -142,6 +144,7 @@ async def _persist_extraction(
             extraction_status=status,
         )
         db.add(line_orm)
+        await db.flush()
         line_item_orms.append(line_orm)
 
     payment_orm: PaymentDetails | None = None
@@ -155,6 +158,7 @@ async def _persist_extraction(
             payment_reference=pd.payment_reference,
         )
         db.add(payment_orm)
+        await db.flush()
 
     await db.flush()
     return header_orm, line_item_orms, payment_orm
@@ -321,33 +325,23 @@ async def _process_job(job: ExtractionJob) -> None:
                     actor_id=None,
                 )
 
-            # Telemetry
+            # Telemetry - record extraction duration and check for SLA breach
             end_time = datetime.now(timezone.utc)
-            duration_ms = int((end_time - start_time).total_seconds() * 1000)
-            page_count = req.invoice_page_count
-            
-            # Determine SLA threshold based on page count
-            if page_count is None or page_count <= 5:
-                threshold = 15_000
-            elif page_count <= 20:
-                threshold = 30_000
-            else:
-                threshold = 30_000  # Still use 30s for >20 pages
-            
-            is_breach = duration_ms > threshold
-            
-            await db.execute(
-                insert(TelemetryRecord).values(
-                    record_id=uuid.uuid4(),
-                    metric_type=MetricType.EXTRACTION_DURATION,
-                    subject_id=str(job.job_id),
-                    duration_ms=duration_ms,
-                    page_count=page_count,
-                    is_breach=is_breach,
-                    breach_threshold_ms=threshold,
-                    measured_at=end_time,
-                )
+            record = await TelemetryService.record_extraction_duration(
+                db=db,
+                job_id=job.job_id,
+                start_time=start_time,
+                end_time=end_time,
+                page_count=req.invoice_page_count,
             )
+            
+            # Log breach event if SLA was exceeded
+            if record.is_breach:
+                logger.warning(
+                    "ExtractionJob %s exceeded SLA threshold: duration=%dms > threshold=%dms (page_count=%s)",
+                    job.job_id, record.duration_ms, record.breach_threshold_ms,
+                    req.invoice_page_count,
+                )
 
             # Mark job as DONE
             await db.execute(
@@ -358,7 +352,7 @@ async def _process_job(job: ExtractionJob) -> None:
             await db.commit()
             logger.info(
                 "ExtractionJob %s completed → request %s status=%s, duration=%dms",
-                job.job_id, job.request_id, new_req_status.value, duration_ms,
+                job.job_id, job.request_id, new_req_status.value, record.duration_ms,
             )
 
         except Exception as exc:  # noqa: BLE001

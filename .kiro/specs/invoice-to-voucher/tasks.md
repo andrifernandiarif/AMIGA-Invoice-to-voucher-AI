@@ -147,13 +147,13 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   - [ ]* 14.3 Write pytest tests for the extraction job: full extraction success → `READY_FOR_REVIEW`, partial extraction (missing bank account) → `EXCEPTION` + `MISSING_EVIDENCE`, extraction failure after 3 retries → `EXCEPTION` + `PROCESSING_FAILED`
     - _Requirements: 4.1, 4.6, 6.1, 6.2_
 
-- [ ] 15. Implement extraction SLA timer and telemetry
+- [x] 15. Implement extraction SLA timer and telemetry
   - [ ] 15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`
     - _Requirements: 20.1, 20.4, 20.5_
   - [ ]* 15.2 Write pytest tests for SLA timer: duration under threshold → no breach record, duration over threshold → breach record with correct fields (`subject_id`, `duration_ms`, `page_count`, `measured_at`)
     - _Requirements: 20.4, 20.5_
 
-- [ ] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
+- [x] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
 
 ---
 
