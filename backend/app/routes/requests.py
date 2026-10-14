@@ -14,9 +14,7 @@ from sqlalchemy import select, update
 from app.dependencies import get_db, require_role, require_client_assignment
 from app.models.audit import AuditEventType
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
-from app.models.header_fields import HeaderFields
-from app.models.invoice_fields import LineItem
-from app.models.payment_details import PaymentDetails
+from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.models.user import User, UserRole
 from app.repositories.request_repository import request_repository
