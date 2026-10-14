@@ -166,8 +166,8 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 6: MISSING_EVIDENCE Applied for Any Missing Required Field**
     - **Validates: Requirements 4.6, 5.3, 6.1, 6.2, 6.3**
 
-- [ ] 18. Implement calculation validation
-  - [ ] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
+- [x] 18. Implement calculation validation
+  - [x] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
     - _Requirements: 7.1, 7.2, 7.3_
   - [ ]* 18.2 Write pytest tests for `CalculationValidator`: exact tolerance boundary (no flag), just-over tolerance (flag), just-under tolerance (no flag), both checks discrepant (both fields flagged)
     - _Requirements: 7.1, 7.2_
