@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
 from app.models.client import Client
+from app.models.client_assignment import ClientAssignment
 from app.models.user import User
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -38,7 +39,9 @@ async def list_clients(
 ):
     """Return all active clients. Use the client_id when calling POST /requests."""
     result = await db.execute(
-        select(Client).where(Client.is_active == True).order_by(Client.client_name)
+        select(Client).join(ClientAssignment, ClientAssignment.client_id == Client.client_id)
+        .where(Client.is_active.is_(True), ClientAssignment.is_active.is_(True),
+               ClientAssignment.user_id == _user.user_id).order_by(Client.client_name)
     )
     return result.scalars().all()
 

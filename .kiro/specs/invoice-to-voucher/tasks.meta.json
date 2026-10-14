@@ -947,6 +947,11 @@
         "executionId": "916c8516-baff-4f7d-8312-59b2ccde78e3",
         "chatSessionId": "sess_1a5df7fd-aba3-4e04-a5ce-94f9358ee5d8",
         "timestamp": 1791969287624
+      },
+      {
+        "executionId": "d46d58fd-2b76-4423-a991-fb6d9650bfa3",
+        "chatSessionId": "sess_1d1cf499-848a-4c17-96df-55c312f0e0bb",
+        "timestamp": 1791984758225
       }
     ],
     "32.2 Implement `POST /requests/{id}/reallocate` FastAPI router (Service Lead only): update `assigned_reviewer`; write a `REALLOCATED` `AuditEvent` with actor `user_id`, previous reviewer `user_id`, new reviewer `user_id`, and UTC timestamp": [

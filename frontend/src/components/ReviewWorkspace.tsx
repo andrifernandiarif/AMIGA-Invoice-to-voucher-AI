@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import { useEffect, useState, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -69,7 +70,7 @@ interface TelemetryRecord {
 
 // API functions
 const fetchRequest = async (requestId: string): Promise<Request> => {
-  const response = await fetch(`/api/requests/${requestId}`);
+  const response = await apiFetch(`/api/requests/${requestId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch request');
   }
@@ -77,7 +78,7 @@ const fetchRequest = async (requestId: string): Promise<Request> => {
 };
 
 const fetchEvidenceFile = async (fileKey: string): Promise<Blob> => {
-  const response = await fetch(`/api/evidence/${encodeURIComponent(fileKey)}`);
+  const response = await apiFetch(`/api/evidence/${encodeURIComponent(fileKey)}`);
   if (!response.ok) {
     throw new Error('Failed to fetch evidence file');
   }
@@ -85,7 +86,7 @@ const fetchEvidenceFile = async (fileKey: string): Promise<Blob> => {
 };
 
 const updateField = async (requestId: string, fieldPath: string, newValue: string): Promise<void> => {
-  const response = await fetch(`/api/requests/${requestId}/fields`, {
+  const response = await apiFetch(`/api/requests/${requestId}/fields`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -98,7 +99,7 @@ const updateField = async (requestId: string, fieldPath: string, newValue: strin
 };
 
 const reportTelemetry = async (telemetry: TelemetryRecord): Promise<void> => {
-  await fetch('/api/telemetry/page-load', {
+  await apiFetch('/api/telemetry/page-load', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -529,11 +530,6 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
 
           <div className="workspace-status">
             <strong>Request Status:</strong> {request?.status}
-            {request?.flags && request.flags.length > 0 && (
-              <div className="flags">
-                <strong>Flags:</strong> {request.flags.join(', ')}
-              </div>
-            )}
           </div>
         </div>
       </div>

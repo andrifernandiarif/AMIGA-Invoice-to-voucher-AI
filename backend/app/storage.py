@@ -13,7 +13,15 @@ class StorageError(Exception):
 
 class S3FileStore:
     def __init__(self) -> None:
-        self._client = boto3.client("s3", region_name=settings.AWS_REGION)
+        credentials = {}
+        if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+            credentials = {
+                "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
+                "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+            }
+            if settings.AWS_SESSION_TOKEN:
+                credentials["aws_session_token"] = settings.AWS_SESSION_TOKEN
+        self._client = boto3.client("s3", region_name=settings.AWS_REGION, **credentials)
         self.bucket = settings.S3_BUCKET
 
     async def upload(self, key: str, data: bytes, content_type: str) -> None:

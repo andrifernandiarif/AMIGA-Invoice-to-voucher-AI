@@ -1,0 +1,84 @@
+export const tokenKey = "amiga_access_token";
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const token = sessionStorage.getItem(tokenKey);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(path, { ...init, headers });
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const body = await response.json();
+      message =
+        typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body.detail ?? body);
+    } catch {
+      /* use HTTP message */
+    }
+    if (response.status === 401) {
+      sessionStorage.removeItem(tokenKey);
+      window.dispatchEvent(new Event("amiga:unauthorized"));
+    }
+    throw new Error(message);
+  }
+  return response;
+}
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await apiFetch(`/api${path}`, init)).json();
+}
+export const json = (body: unknown, method = "POST"): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+export interface User {
+  user_id: string;
+  username: string;
+  role: string;
+}
+export interface Client {
+  client_id: string;
+  client_name: string;
+}
+export interface Invoice {
+  request_id: string;
+  client_id: string;
+  client_name: string;
+  status: string;
+  flags: string[];
+  created_at: string;
+  request_date: string;
+  channel: string;
+}
+export interface Detail {
+  request_id: string;
+  client_id: string;
+  status: string;
+  flags: string[];
+  rejection_reason: string | null;
+  evidence_files: {
+    file_key: string;
+    original_filename: string;
+    content_type: string;
+  }[];
+  draft: {
+    header_fields: Record<string, string | null> | null;
+    line_items: (Record<string, string | number | null> & {
+      line_item_id: string;
+      sequence_number: number;
+    })[];
+    payment_details: Record<string, string | null> | null;
+  } | null;
+}
+export const statusLabels: Record<string, string> = {
+  QUEUED: "Queued",
+  PROCESSING: "Processing",
+  READY_FOR_REVIEW: "Ready for review",
+  EXCEPTION: "Extraction issue",
+  AMIGA_REVIEWED: "Approved",
+  SENT_TO_CLIENT: "Sent to client",
+  REJECTED: "Rejected",
+};

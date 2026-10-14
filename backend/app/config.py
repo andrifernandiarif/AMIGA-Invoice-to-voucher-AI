@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "amiga-invoices-dev"
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_SESSION_TOKEN: str = ""
     AWS_REGION: str = "ap-southeast-1"
 
     # Auth

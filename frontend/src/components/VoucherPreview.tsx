@@ -1,3 +1,4 @@
+import { apiFetch } from '../api';
 import { useEffect, useState, useCallback } from 'react';
 
 // API response types
@@ -44,7 +45,7 @@ export interface VoucherPreviewResponse {
 
 // API function
 const fetchVoucherPreview = async (requestId: string): Promise<VoucherPreviewResponse> => {
-  const response = await fetch(`/api/requests/${requestId}/voucher-preview`);
+  const response = await apiFetch(`/api/requests/${requestId}/voucher-preview`);
   if (!response.ok) {
     throw new Error(`Failed to load voucher preview (HTTP ${response.status})`);
   }

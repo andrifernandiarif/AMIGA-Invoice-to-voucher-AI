@@ -310,7 +310,6 @@ class TestStatusGuardAndFields:
             RequestStatus.PROCESSING,
             RequestStatus.READY_FOR_REVIEW,
             RequestStatus.EXCEPTION,
-            RequestStatus.SENT_TO_CLIENT,
             RequestStatus.REJECTED,
         ],
     )

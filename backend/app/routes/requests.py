@@ -6,8 +6,6 @@ from datetime import date, datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,22 +14,13 @@ from app.models.audit import AuditEventType
 from app.models.draft import Draft
 from app.models.evidence_file import EvidenceFile
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
-from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.models.user import User, UserRole
 from app.repositories.request_repository import request_repository
 from app.repositories.user_repository import user_repository
 from app.schemas.request_schemas import (
     CreateRequestResponse,
-    DraftResponse,
-    EvidenceFileResponse,
-    FieldRevisionResponse,
-    HeaderFieldsResponse,
-    LineItemResponse,
-    PaymentDetailsResponse,
     RejectRequestBody,
-    RequestDetailResponse,
-    RequestSummary,
 )
 from app.services.audit_service import log_event
 from app.services.request_service import RequestIdGenerationError, generate_request_id
@@ -39,7 +28,7 @@ from app.storage import StorageError, file_store
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
-MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024   # 20 MB per file
+MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB per file
 MAX_FILES_PER_SESSION = 20
 ACCEPTED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 
@@ -47,6 +36,13 @@ ACCEPTED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 # ─────────────────────────────────────────────────────────────────────────────
 # POST /requests  — upload invoice
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+async def generate_approved_voucher(request_id, db, user):
+    from app.routes.voucher import generate_voucher_pdf
+
+    return await generate_voucher_pdf(request_id=request_id, db=db, current_user=user)
+
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CreateRequestResponse)
 async def upload_invoice(
@@ -69,7 +65,7 @@ async def upload_invoice(
     if len(files) > MAX_FILES_PER_SESSION:
         raise HTTPException(422, f"Maximum {MAX_FILES_PER_SESSION} files per session.")
 
-    if current_user.role == UserRole.INTAKE_SUPPORT:
+    if current_user.role in (UserRole.INTAKE_SUPPORT, UserRole.CLIENT_PIC):
         active = await user_repository.is_assignment_active(db, current_user.user_id, client_id)
         if not active:
             raise HTTPException(403, "You are not authorized to submit for the selected client.")
@@ -105,7 +101,7 @@ async def upload_invoice(
             raise HTTPException(502, detail=f"File storage error for '{name}': {exc}")
         evidence_keys.append(key)
         evidence_meta.append(
-            {"filename": name, "content_type": ct, "file_key": key, "upload_order": order}
+            {"filename": name, "content_type": ct, "file_key": key, "upload_order": order, "file_size_bytes": len(data)}
         )
 
     req = await request_repository.create_request(
@@ -119,6 +115,21 @@ async def upload_invoice(
         invoice_file_key=evidence_keys[0],
         invoice_page_count=None,
     )
+
+    for evidence in evidence_meta:
+        db.add(
+            EvidenceFile(
+                evidence_id=uuid.uuid4(),
+                request_id=request_id,
+                file_key=evidence["file_key"],
+                original_filename=evidence["filename"],
+                content_type=evidence["content_type"],
+                file_size_bytes=evidence["file_size_bytes"],
+                upload_order=evidence["upload_order"],
+                uploaded_at=datetime.now(timezone.utc),
+            )
+        )
+    await db.flush()
 
     await log_event(
         db,
@@ -154,9 +165,9 @@ async def upload_invoice(
 async def approve_request(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(
-        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
-    )),
+    current_user: User = Depends(
+        require_role("FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN")
+    ),
 ):
     """
     Approve a Request for payment processing.
@@ -186,7 +197,9 @@ async def approve_request(
         raise HTTPException(403, "You do not have authority to approve Requests.")
 
     # ── Step 2 & 3: Load request and verify client assignment ──────────────────
-    req = await request_repository.get_by_id(db, request_id)
+    req = (
+        await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id).with_for_update())
+    ).scalar_one_or_none()
     if req is None:
         raise HTTPException(404, "Request not found.")
 
@@ -198,25 +211,15 @@ async def approve_request(
     if req.uploader_id == current_user.user_id:
         raise HTTPException(403, "Self-approval is not permitted.")
 
-    # ── Step 5: Exception flag / status check ──────────────────────────────────
-    exception_flags = {
-        "MISSING_EVIDENCE",
-        "CALCULATION_MISMATCH",
-        "SUBTOTAL_MISMATCH",
-        "TOTAL_MISMATCH",
-        "POSSIBLE_DUPLICATE",
-    }
-    if req.status == RequestStatus.EXCEPTION or any(
-        f in exception_flags for f in (req.flags or [])
-    ):
-        raise HTTPException(
-            409, "Unresolved exceptions must be addressed before this Request can be approved."
-        )
+    # Old flag-based exceptions with a draft can still be reviewed manually.
+    if req.status == RequestStatus.EXCEPTION:
+        draft = await db.scalar(select(Draft).where(Draft.request_id == request_id))
+        if draft is None:
+            raise HTTPException(409, "Extraction has not produced a draft for manual review.")
+    elif req.status != RequestStatus.READY_FOR_REVIEW:
+        raise HTTPException(409, "Request is not ready for manual review.")
 
-    # ── Step 6: Status check ───────────────────────────────────────────────────
-    if req.status != RequestStatus.READY_FOR_REVIEW:
-        raise HTTPException(409, "Request is not in READY_FOR_REVIEW status.")
-
+    req.flags = []
     # ── Approve: transition status and write audit event ──────────────────────
     await request_repository.update_status(db, request_id, RequestStatus.AMIGA_REVIEWED)
 
@@ -231,44 +234,15 @@ async def approve_request(
         actor_id=current_user.user_id,
     )
 
-    await db.commit()
-    return {"status": "approved", "request_id": str(request_id)}
-
-
-@router.post("/{request_id}/dismiss-duplicate", status_code=status.HTTP_200_OK)
-async def dismiss_duplicate(
-    request_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("FINANCE_REVIEWER")),
-):
-    """
-    Remove the POSSIBLE_DUPLICATE flag from a request.
-    Only Finance Reviewer role can dismiss duplicates.
-    Requires active client assignment for the request's client.
-    """
-    req = await request_repository.get_by_id(db, request_id)
-    if req is None:
-        raise HTTPException(404, "Request not found.")
-
-    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
-    if not active:
-        raise HTTPException(403, "You are not authorized to access this request.")
-
-    await request_repository.remove_flag(db, request_id, "POSSIBLE_DUPLICATE")
-
-    await log_event(
-        db,
-        AuditEventType.FLAG_DISMISSED,
-        payload={
-            "request_id": str(request_id),
-            "flag": "POSSIBLE_DUPLICATE",
-        },
-        request_id=request_id,
-        actor_id=current_user.user_id,
-    )
-
-    await db.commit()
-    return {"status": "success"}
+    # Generate with the active template in the same transaction as approval.
+    # A rendering/storage failure rolls back approval so the reviewer can retry.
+    try:
+        voucher = await generate_approved_voucher(request_id, db, current_user)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return {"status": "approved", "request_id": str(request_id), "voucher": voucher}
 
 
 @router.post("/{request_id}/reject", status_code=status.HTTP_200_OK)
@@ -276,9 +250,9 @@ async def reject_request(
     request_id: uuid.UUID,
     body: RejectRequestBody,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(
-        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
-    )),
+    current_user: User = Depends(
+        require_role("FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN")
+    ),
 ):
     """
     Reject a Request with a mandatory reason (1–500 characters).
@@ -294,7 +268,9 @@ async def reject_request(
         raise HTTPException(403, "You do not have authority to reject Requests.")
 
     # ── Step 2: Load request ───────────────────────────────────────────────────
-    req = await request_repository.get_by_id(db, request_id)
+    req = (
+        await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id).with_for_update())
+    ).scalar_one_or_none()
     if req is None:
         raise HTTPException(404, "Request not found.")
 
@@ -315,9 +291,7 @@ async def reject_request(
         )
 
     # ── Reject: persist reason, transition status, write audit event ──────────
-    await request_repository.update_status_with_reason(
-        db, request_id, RequestStatus.REJECTED, body.rejection_reason
-    )
+    await request_repository.update_status_with_reason(db, request_id, RequestStatus.REJECTED, body.rejection_reason)
 
     await log_event(
         db,

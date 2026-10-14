@@ -1,0 +1,147 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import App from "./App";
+const user = { user_id: "u", username: "finance", role: "FINANCE_REVIEWER" };
+const response = (body: unknown) => ({ ok: true, json: async () => body });
+beforeEach(() => {
+  sessionStorage.clear();
+  window.history.replaceState({}, "", "/");
+  vi.stubGlobal("fetch", vi.fn());
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+describe("Workspace", () => {
+  it("signs in and sends the bearer token to workspace APIs", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        response({ access_token: "test-token" }) as Response,
+      )
+      .mockResolvedValueOnce(response(user) as Response)
+      .mockResolvedValue(response([]) as Response);
+    render(<App />);
+    await userEvent.type(screen.getByLabelText("Username"), "finance");
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Invoice overview." });
+    expect(sessionStorage.getItem("amiga_access_token")).toBe("test-token");
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => url === "/api/requests");
+    expect(new Headers(call?.[1]?.headers).get("Authorization")).toBe(
+      "Bearer test-token",
+    );
+    expect(
+      screen.queryByRole("link", { name: "New request" }),
+    ).not.toBeInTheDocument();
+  });
+  it("filters real request data and signs out", async () => {
+    sessionStorage.setItem("amiga_access_token", "token");
+    vi.mocked(fetch).mockImplementation(
+      async (url) =>
+        response(
+          url === "/api/auth/me"
+            ? user
+            : [
+                {
+                  request_id: "12345678-1234-1234-1234-123456789abc",
+                  client_name: "Acme",
+                  status: "READY_FOR_REVIEW",
+                  flags: [],
+                  created_at: "2026-10-14T00:00:00Z",
+                  channel: "upload",
+                },
+              ],
+        ) as Response,
+    );
+    render(<App />);
+    await screen.findByText("Acme");
+    await userEvent.type(screen.getByLabelText("Search requests"), "missing");
+    expect(screen.getByText("No matching requests")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Sign out"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Sign in to your workspace" }),
+      ).toBeInTheDocument(),
+    );
+    expect(sessionStorage.getItem("amiga_access_token")).toBeNull();
+  });
+});
+
+it("lets a reviewer accept a draft without flag gates and download evidence separately", async () => {
+  const requestId = "12345678-1234-1234-1234-123456789abc";
+  window.history.replaceState({}, "", `/requests/${requestId}`);
+  sessionStorage.setItem("amiga_access_token", "token");
+  const draft = {
+    request_id: requestId,
+    client_id: "c",
+    status: "READY_FOR_REVIEW",
+    flags: ["MISSING_EVIDENCE"],
+    rejection_reason: null,
+    evidence_files: [
+      {
+        file_key: "evidence/invoice.pdf",
+        original_filename: "Invoice.pdf",
+        content_type: "application/pdf",
+      },
+    ],
+    draft: {
+      header_fields: { vendor_name: "Vendor", total_amount: "99" },
+      line_items: [],
+      payment_details: null,
+    },
+  };
+  vi.stubGlobal(
+    "URL",
+    class extends URL {
+      static createObjectURL = vi.fn(() => "blob:test");
+      static revokeObjectURL = vi.fn();
+    },
+  );
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => {});
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (url === "/api/auth/me") return response(user) as Response;
+    if (String(url).includes("/evidence/"))
+      return {
+        ok: true,
+        blob: async () => new Blob(["%PDF-evidence"]),
+      } as Response;
+    if (String(url).endsWith("/approve") && init?.method === "POST") {
+      draft.status = "AMIGA_REVIEWED";
+      return response({
+        status: "approved",
+        voucher: { voucher_pdf_id: "v" },
+      }) as Response;
+    }
+    return response(draft) as Response;
+  });
+  render(<App />);
+  const accept = await screen.findByRole("button", {
+    name: "Accept & generate voucher",
+  });
+  expect(accept).toBeEnabled();
+  expect(
+    screen.queryByText("This request needs attention"),
+  ).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Download" }));
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(([url]) => String(url).includes("?download=true")),
+    ).toBe(true),
+  );
+  await userEvent.click(accept);
+  await screen.findByRole("button", { name: "Download voucher" });
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/voucher-pdf") && init?.method === "POST",
+      ),
+  ).toBe(false);
+  click.mockRestore();
+});

@@ -5,17 +5,18 @@ processes pending jobs without any Redis/RQ dependency.
 
 Lifecycle:
   PENDING  → claims job (IN_PROGRESS), sets Request to PROCESSING
-  success  → job DONE, Request to READY_FOR_REVIEW or EXCEPTION (based on validation flags)
+  success  → job DONE, Request to READY_FOR_REVIEW for manual review
   failure  → retry_count + 1; if retry_count < 3 reset to PENDING, else FAILED + Request EXCEPTION
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import AsyncSessionLocal
@@ -29,15 +30,13 @@ from app.models.invoice_fields import (
     LineItem,
     PaymentDetails,
 )
-from app.models.request import InvoiceRequest, RequestStatus
-from app.models.telemetry import MetricType, TelemetryRecord
+from app.models.request import RequestStatus
 from app.providers import get_extraction_provider
 from app.repositories.request_repository import request_repository
 from app.schemas.extraction import ExtractionResult
 from app.services.audit_service import log_event
 from app.services.telemetry_service import TelemetryService
 from app.storage import file_store
-from app.validation.engine import run_validation
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ async def _claim_pending_job(db: AsyncSession) -> ExtractionJob | None:
     if job is None:
         return None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await db.execute(
         update(ExtractionJob)
         .where(ExtractionJob.job_id == job.job_id)
@@ -92,9 +91,9 @@ async def _persist_extraction(
 ) -> tuple[Draft, HeaderFields | None, list[LineItem], PaymentDetails | None]:
     """
     Persist extracted fields into drafts / header_fields / line_items /
-    payment_details. Returns the ORM objects needed for validation.
+    payment_details. Returns the persisted draft objects.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     draft = Draft(
         draft_id=uuid.uuid4(),
@@ -175,11 +174,7 @@ async def _fetch_evidence_files(
     Returns list of (bytes, content_type) tuples.
     """
     # First, try to get evidence files from the evidence_files table
-    stmt = (
-        select(EvidenceFile)
-        .where(EvidenceFile.request_id == request_id)
-        .order_by(EvidenceFile.upload_order)
-    )
+    stmt = select(EvidenceFile).where(EvidenceFile.request_id == request_id).order_by(EvidenceFile.upload_order)
     result = await db.execute(stmt)
     evidence_files = list(result.scalars().all())
 
@@ -195,7 +190,7 @@ async def _fetch_evidence_files(
     req = await request_repository.get_by_id(db, request_id)
     if req is None:
         raise ValueError(f"Request {request_id} not found")
-    
+
     file_bytes = await file_store.download(req.invoice_file_key)
     key_lower = req.invoice_file_key.lower()
     if key_lower.endswith(".pdf"):
@@ -204,14 +199,14 @@ async def _fetch_evidence_files(
         ct = "image/png"
     else:
         ct = "image/jpeg"
-    
+
     return [(file_bytes, ct)]
 
 
 async def _process_job(job: ExtractionJob) -> None:
     """Process a single IN_PROGRESS extraction job end-to-end."""
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     async with AsyncSessionLocal() as db:
         try:
             # Fetch the request to get page count and request_id
@@ -231,101 +226,24 @@ async def _process_job(job: ExtractionJob) -> None:
             )
 
             # Idempotency check: if Draft already exists, skip creation
-            existing_draft = await db.scalar(
-                select(Draft).where(Draft.request_id == job.request_id)
-            )
-            
-            if existing_draft:
-                # Load existing data for validation
-                draft = existing_draft
-                header_orm = await db.scalar(
-                    select(HeaderFields).where(HeaderFields.draft_id == existing_draft.draft_id)
-                )
-                line_items_result = await db.execute(
-                    select(LineItem).where(LineItem.draft_id == existing_draft.draft_id)
-                )
-                line_item_orms = list(line_items_result.scalars().all())
-                payment_orm = await db.scalar(
-                    select(PaymentDetails).where(PaymentDetails.draft_id == existing_draft.draft_id)
-                )
-            else:
-                # Persist extracted fields
-                draft, header_orm, line_item_orms, payment_orm = await _persist_extraction(
-                    db, job.request_id, result
-                )
+            existing_draft = await db.scalar(select(Draft).where(Draft.request_id == job.request_id))
 
-            # Run validation
-            flags = await run_validation(
-                request_id=job.request_id,
-                draft=draft,
-                db=db,
-            )
+            if not existing_draft:
+                await _persist_extraction(db, job.request_id, result)
 
-            # Apply flags to request and log FLAG_APPLIED events
-            for flag in flags:
-                await request_repository.apply_flag(db, job.request_id, flag)
-
-            # Determine final request status
-            new_req_status = (
-                RequestStatus.EXCEPTION if flags else RequestStatus.READY_FOR_REVIEW
-            )
-            await request_repository.update_status(db, job.request_id, new_req_status)
-            
-            # Log STATUS_CHANGED event
+            # Extraction prepares data; the reviewer checks discrepancies manually.
+            req.flags = []
+            await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REVIEW)
             await log_event(
                 db,
                 AuditEventType.STATUS_CHANGED,
-                payload={
-                    "from": "PROCESSING",
-                    "to": new_req_status.value,
-                    "flags": flags,
-                    "job_id": str(job.job_id),
-                },
+                payload={"from": "PROCESSING", "to": "READY_FOR_REVIEW", "job_id": str(job.job_id)},
                 request_id=job.request_id,
                 actor_id=None,
             )
 
-            # Log FLAG_APPLIED events for each flag
-            for flag in flags:
-                # Add detailed info for specific flags
-                flag_payload = {"flag": flag}
-                if flag == "MISSING_EVIDENCE":
-                    # Determine which fields are missing based on validation
-                    missing = []
-                    if payment_orm is None:
-                        missing.extend(["bank_account_number", "bank_name", "payment_reference"])
-                    else:
-                        if not payment_orm.bank_account_number:
-                            missing.append("bank_account_number")
-                        if not payment_orm.bank_name:
-                            missing.append("bank_name")
-                        if not payment_orm.payment_reference:
-                            missing.append("payment_reference")
-                    if missing:
-                        flag_payload["missing_fields"] = missing
-                    for i, li in enumerate(line_item_orms):
-                        if not li.description or not li.quantity or not li.unit or not li.unit_price or not li.line_total:
-                            missing.append(f"line_items[{i + 1}]")
-                    if missing:
-                        flag_payload["details"] = missing
-                elif flag == "CALC_DISCREPANCY":
-                    # This would require re-running calculation validator to get details
-                    # For now, just note the flag
-                    flag_payload["details"] = "calculation discrepancy detected"
-                elif flag == "POSSIBLE_DUPLICATE":
-                    # This would require re-running duplicate detector to get matches
-                    flag_payload["details"] = "possible duplicate detected"
-                
-                await log_event(
-                    db,
-                    AuditEventType.FLAG_APPLIED,
-                    payload=flag_payload,
-                    request_id=job.request_id,
-                    actor_id=None,
-                )
-
             # Telemetry - record extraction duration and check for SLA breach
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             record = await TelemetryService.record_extraction_duration(
                 db=db,
                 job_id=job.job_id,
@@ -333,12 +251,14 @@ async def _process_job(job: ExtractionJob) -> None:
                 end_time=end_time,
                 page_count=req.invoice_page_count,
             )
-            
+
             # Log breach event if SLA was exceeded
             if record.is_breach:
                 logger.warning(
                     "ExtractionJob %s exceeded SLA threshold: duration=%dms > threshold=%dms (page_count=%s)",
-                    job.job_id, record.duration_ms, record.breach_threshold_ms,
+                    job.job_id,
+                    record.duration_ms,
+                    record.breach_threshold_ms,
                     req.invoice_page_count,
                 )
 
@@ -351,7 +271,10 @@ async def _process_job(job: ExtractionJob) -> None:
             await db.commit()
             logger.info(
                 "ExtractionJob %s completed → request %s status=%s, duration=%dms",
-                job.job_id, job.request_id, new_req_status.value, record.duration_ms,
+                job.job_id,
+                job.request_id,
+                RequestStatus.READY_FOR_REVIEW.value,
+                record.duration_ms,
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -364,15 +287,13 @@ async def _handle_failure(job: ExtractionJob, error_detail: str) -> None:
     """Increment retry_count; reset to PENDING or mark FAILED after max retries."""
     async with AsyncSessionLocal() as db:
         # Re-fetch the latest retry_count from DB
-        result = await db.execute(
-            select(ExtractionJob).where(ExtractionJob.job_id == job.job_id)
-        )
+        result = await db.execute(select(ExtractionJob).where(ExtractionJob.job_id == job.job_id))
         fresh_job = result.scalar_one_or_none()
         if fresh_job is None:
             return
 
         new_retry_count = fresh_job.retry_count + 1
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if new_retry_count >= MAX_RETRIES:
             # Give up — mark job FAILED and request EXCEPTION
@@ -400,7 +321,8 @@ async def _handle_failure(job: ExtractionJob, error_detail: str) -> None:
             )
             logger.error(
                 "ExtractionJob %s permanently failed after %d retries → request EXCEPTION",
-                job.job_id, new_retry_count,
+                job.job_id,
+                new_retry_count,
             )
         else:
             # Reset to PENDING for retry
@@ -416,7 +338,9 @@ async def _handle_failure(job: ExtractionJob, error_detail: str) -> None:
             )
             logger.warning(
                 "ExtractionJob %s retry %d/%d scheduled",
-                job.job_id, new_retry_count, MAX_RETRIES,
+                job.job_id,
+                new_retry_count,
+                MAX_RETRIES,
             )
 
         await db.commit()

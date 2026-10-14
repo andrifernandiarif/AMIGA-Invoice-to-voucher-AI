@@ -112,7 +112,8 @@ describe('VoucherPreview', () => {
       await screen.findByTestId('voucher-preview');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        `/api/requests/${mockRequestId}/voucher-preview`
+        `/api/requests/${mockRequestId}/voucher-preview`,
+        expect.objectContaining({ headers: expect.any(Headers) })
       );
     });
 

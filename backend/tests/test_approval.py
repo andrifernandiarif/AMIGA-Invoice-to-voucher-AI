@@ -11,15 +11,16 @@ Requirements tested:
   - Req 12.3: A user without the FINANCE_REVIEWER role is rejected with 403.
   - Req 12.4: A SYSTEM_ADMIN attempt is rejected AND an
               UNAUTHORIZED_APPROVAL_ATTEMPT AuditEvent is written.
-  - Req 12.5: A Request in EXCEPTION status cannot be approved; returns
-              409 with a message about unresolved exceptions.
+  - Technical extraction failures without a draft cannot be accepted.
+  - Historical validation flags do not gate manual acceptance.
+  - Voucher generation is stubbed here; test_manual_workflow covers the pipeline.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -49,6 +50,12 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 # ===========================================================================
 # Fixtures
 # ===========================================================================
+
+
+@pytest.fixture(autouse=True)
+def voucher_generation_stub():
+    with patch("app.routes.voucher.generate_voucher_pdf", AsyncMock(return_value={"voucher_pdf_id": "test-voucher"})):
+        yield
 
 
 @pytest.fixture
@@ -190,9 +197,7 @@ class TestSelfApprovalRejected:
     """
 
     @pytest.mark.asyncio
-    async def test_approval_self_approval_rejected(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_self_approval_rejected(self, db_session: AsyncSession):
         """Finance Reviewer who uploaded the Request is rejected with 403."""
         now = datetime.now(timezone.utc)
         client = Client(client_id=uuid.uuid4(), client_name="SelfCo", is_active=True)
@@ -211,19 +216,21 @@ class TestSelfApprovalRejected:
         await db_session.flush()
 
         # Assign reviewer to client
-        db_session.add(ClientAssignment(
-            assignment_id=uuid.uuid4(),
-            user_id=reviewer.user_id,
-            client_id=client.client_id,
-            is_active=True,
-            assigned_at=now,
-        ))
+        db_session.add(
+            ClientAssignment(
+                assignment_id=uuid.uuid4(),
+                user_id=reviewer.user_id,
+                client_id=client.client_id,
+                is_active=True,
+                assigned_at=now,
+            )
+        )
 
         # Request uploaded by the reviewer themselves
         request = InvoiceRequest(
             request_id=uuid.uuid4(),
             client_id=client.client_id,
-            uploader_id=reviewer.user_id,   # ← same as current_user
+            uploader_id=reviewer.user_id,  # ← same as current_user
             request_type="standard",
             channel="upload",
             request_date=date.today(),
@@ -239,20 +246,16 @@ class TestSelfApprovalRejected:
 
         app = _build_app(db_session, reviewer)
         with TestClient(app) as client_http:
-            resp = client_http.post(
-                f"/requests/{request.request_id}/approve"
-            )
+            resp = client_http.post(f"/requests/{request.request_id}/approve")
 
         assert resp.status_code == 403
         detail = resp.json().get("detail", "").lower()
-        assert "self-approval" in detail or "self approval" in detail, (
-            f"Expected self-approval rejection message, got: {detail!r}"
-        )
+        assert (
+            "self-approval" in detail or "self approval" in detail
+        ), f"Expected self-approval rejection message, got: {detail!r}"
 
     @pytest.mark.asyncio
-    async def test_approval_self_approval_status_unchanged(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_self_approval_status_unchanged(self, db_session: AsyncSession):
         """Request status must remain READY_FOR_REVIEW after a self-approval attempt."""
         now = datetime.now(timezone.utc)
         client = Client(client_id=uuid.uuid4(), client_name="SelfCo2", is_active=True)
@@ -269,13 +272,15 @@ class TestSelfApprovalRejected:
         db_session.add(reviewer)
         await db_session.flush()
 
-        db_session.add(ClientAssignment(
-            assignment_id=uuid.uuid4(),
-            user_id=reviewer.user_id,
-            client_id=client.client_id,
-            is_active=True,
-            assigned_at=now,
-        ))
+        db_session.add(
+            ClientAssignment(
+                assignment_id=uuid.uuid4(),
+                user_id=reviewer.user_id,
+                client_id=client.client_id,
+                is_active=True,
+                assigned_at=now,
+            )
+        )
 
         request = InvoiceRequest(
             request_id=uuid.uuid4(),
@@ -298,15 +303,11 @@ class TestSelfApprovalRejected:
         with TestClient(app) as client_http:
             client_http.post(f"/requests/{request.request_id}/approve")
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(
-                InvoiceRequest.request_id == request.request_id
-            )
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request.request_id))
         refreshed = result.scalar_one()
-        assert refreshed.status == RequestStatus.READY_FOR_REVIEW, (
-            "Status must stay READY_FOR_REVIEW after rejected self-approval"
-        )
+        assert (
+            refreshed.status == RequestStatus.READY_FOR_REVIEW
+        ), "Status must stay READY_FOR_REVIEW after rejected self-approval"
 
 
 # ===========================================================================
@@ -325,9 +326,7 @@ class TestWrongRoleRejected:
         "bad_role",
         [UserRole.CLIENT_PIC, UserRole.SERVICE_LEAD, UserRole.INTAKE_SUPPORT],
     )
-    async def test_approval_wrong_role_rejected(
-        self, db_session: AsyncSession, bad_role: UserRole
-    ):
+    async def test_approval_wrong_role_rejected(self, db_session: AsyncSession, bad_role: UserRole):
         """Non-FINANCE_REVIEWER roles are rejected with 403."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -341,8 +340,7 @@ class TestWrongRoleRejected:
         assert resp.status_code == 403
         detail = resp.json().get("detail", "").lower()
         assert "authority" in detail, (
-            f"Expected 'authority' in rejection message for role {bad_role.value}, "
-            f"got: {detail!r}"
+            f"Expected 'authority' in rejection message for role {bad_role.value}, " f"got: {detail!r}"
         )
 
     @pytest.mark.asyncio
@@ -350,9 +348,7 @@ class TestWrongRoleRejected:
         "bad_role",
         [UserRole.CLIENT_PIC, UserRole.SERVICE_LEAD, UserRole.INTAKE_SUPPORT],
     )
-    async def test_approval_wrong_role_no_status_change(
-        self, db_session: AsyncSession, bad_role: UserRole
-    ):
+    async def test_approval_wrong_role_no_status_change(self, db_session: AsyncSession, bad_role: UserRole):
         """Request status must remain unchanged when a wrong-role user tries to approve."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -363,34 +359,26 @@ class TestWrongRoleRejected:
         with TestClient(app) as client_http:
             client_http.post(f"/requests/{request.request_id}/approve")
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(
-                InvoiceRequest.request_id == request.request_id
-            )
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request.request_id))
         refreshed = result.scalar_one()
         assert refreshed.status == RequestStatus.READY_FOR_REVIEW
 
 
 # ===========================================================================
-# Req 12.5 — EXCEPTION status blocks approval
+# Technical extraction failure without a draft blocks acceptance
 # ===========================================================================
 
 
 class TestExceptionStatusBlocked:
     """
-    Req 12.5: WHILE a Request is in EXCEPTION status, the system SHALL prevent
-    approval and display an error message about unresolved exceptions.
+    Technical extraction failures without a draft cannot be accepted.
+    Historical validation flags do not block manual review.
     """
 
     @pytest.mark.asyncio
-    async def test_approval_exception_status_blocked(
-        self, db_session: AsyncSession
-    ):
-        """Request in EXCEPTION status returns 409 with an unresolved-exceptions message."""
-        seeded = await _seed_base(
-            db_session, request_status=RequestStatus.EXCEPTION
-        )
+    async def test_approval_exception_status_blocked(self, db_session: AsyncSession):
+        """An extraction failure without a draft returns 409."""
+        seeded = await _seed_base(db_session, request_status=RequestStatus.EXCEPTION)
         request: InvoiceRequest = seeded["request"]
         reviewer: User = seeded["reviewer"]
 
@@ -398,22 +386,14 @@ class TestExceptionStatusBlocked:
         with TestClient(app) as client_http:
             resp = client_http.post(f"/requests/{request.request_id}/approve")
 
-        assert resp.status_code == 409, (
-            f"Expected 409 for EXCEPTION status request, got {resp.status_code}"
-        )
+        assert resp.status_code == 409, f"Expected 409 for EXCEPTION status request, got {resp.status_code}"
         detail = resp.json().get("detail", "").lower()
-        assert "exception" in detail or "unresolved" in detail, (
-            f"Expected message about unresolved exceptions, got: {detail!r}"
-        )
+        assert "draft" in detail, f"Expected message about a missing draft, got: {detail!r}"
 
     @pytest.mark.asyncio
-    async def test_approval_exception_status_unchanged(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_exception_status_unchanged(self, db_session: AsyncSession):
         """Request status must remain EXCEPTION after blocked approval attempt."""
-        seeded = await _seed_base(
-            db_session, request_status=RequestStatus.EXCEPTION
-        )
+        seeded = await _seed_base(db_session, request_status=RequestStatus.EXCEPTION)
         request: InvoiceRequest = seeded["request"]
         reviewer: User = seeded["reviewer"]
 
@@ -421,21 +401,14 @@ class TestExceptionStatusBlocked:
         with TestClient(app) as client_http:
             client_http.post(f"/requests/{request.request_id}/approve")
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(
-                InvoiceRequest.request_id == request.request_id
-            )
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request.request_id))
         refreshed = result.scalar_one()
         assert refreshed.status == RequestStatus.EXCEPTION
 
     @pytest.mark.asyncio
-    async def test_approval_exception_flag_also_blocked(
-        self, db_session: AsyncSession
-    ):
+    async def test_legacy_validation_flag_does_not_block_manual_acceptance(self, db_session: AsyncSession):
         """
-        A Request with an exception flag (e.g. CALCULATION_MISMATCH) but not yet
-        in EXCEPTION status is also blocked.
+        Historical discrepancy flags are ignored for manual acceptance.
         """
         seeded = await _seed_base(
             db_session,
@@ -449,7 +422,8 @@ class TestExceptionStatusBlocked:
         with TestClient(app) as client_http:
             resp = client_http.post(f"/requests/{request.request_id}/approve")
 
-        assert resp.status_code == 409
+        assert resp.status_code == 200
+        assert resp.json()["voucher"]["voucher_pdf_id"] == "test-voucher"
 
 
 # ===========================================================================
@@ -465,9 +439,7 @@ class TestValidApprovalTransition:
     """
 
     @pytest.mark.asyncio
-    async def test_approval_valid_transitions_to_amiga_reviewed(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_transitions_to_amiga_reviewed(self, db_session: AsyncSession):
         """Successful approval returns 200 and status moves to AMIGA_REVIEWED."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -479,20 +451,14 @@ class TestValidApprovalTransition:
 
         assert resp.status_code == 200
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(
-                InvoiceRequest.request_id == request.request_id
-            )
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request.request_id))
         refreshed = result.scalar_one()
-        assert refreshed.status == RequestStatus.AMIGA_REVIEWED, (
-            f"Expected AMIGA_REVIEWED after approval, got {refreshed.status}"
-        )
+        assert (
+            refreshed.status == RequestStatus.AMIGA_REVIEWED
+        ), f"Expected AMIGA_REVIEWED after approval, got {refreshed.status}"
 
     @pytest.mark.asyncio
-    async def test_approval_valid_creates_approved_audit_event(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_creates_approved_audit_event(self, db_session: AsyncSession):
         """An APPROVED AuditEvent must be persisted after successful approval."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -511,14 +477,10 @@ class TestValidApprovalTransition:
             )
         )
         events = result.scalars().all()
-        assert len(events) == 1, (
-            "Exactly one APPROVED audit event must be recorded on approval"
-        )
+        assert len(events) == 1, "Exactly one APPROVED audit event must be recorded on approval"
 
     @pytest.mark.asyncio
-    async def test_approval_valid_audit_event_records_approver_identity(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_audit_event_records_approver_identity(self, db_session: AsyncSession):
         """APPROVED AuditEvent must capture the approver's user_id as actor_id."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -538,14 +500,10 @@ class TestValidApprovalTransition:
         )
         event = result.scalars().first()
         assert event is not None
-        assert event.actor_id == reviewer.user_id, (
-            "APPROVED AuditEvent.actor_id must be the approver's user_id"
-        )
+        assert event.actor_id == reviewer.user_id, "APPROVED AuditEvent.actor_id must be the approver's user_id"
 
     @pytest.mark.asyncio
-    async def test_approval_valid_audit_event_payload_contains_approver_id(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_audit_event_payload_contains_approver_id(self, db_session: AsyncSession):
         """APPROVED AuditEvent payload must include approver_id."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -566,15 +524,11 @@ class TestValidApprovalTransition:
         event = result.scalars().first()
         assert event is not None
         payload = event.payload
-        assert "approver_id" in payload, (
-            "APPROVED AuditEvent payload must contain 'approver_id'"
-        )
+        assert "approver_id" in payload, "APPROVED AuditEvent payload must contain 'approver_id'"
         assert payload["approver_id"] == str(reviewer.user_id)
 
     @pytest.mark.asyncio
-    async def test_approval_valid_audit_event_has_timestamp(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_audit_event_has_timestamp(self, db_session: AsyncSession):
         """APPROVED AuditEvent must have a non-null occurred_at timestamp."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -594,14 +548,10 @@ class TestValidApprovalTransition:
         )
         event = result.scalars().first()
         assert event is not None
-        assert event.occurred_at is not None, (
-            "APPROVED AuditEvent must record a UTC timestamp"
-        )
+        assert event.occurred_at is not None, "APPROVED AuditEvent must record a UTC timestamp"
 
     @pytest.mark.asyncio
-    async def test_approval_valid_response_body(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_valid_response_body(self, db_session: AsyncSession):
         """Successful approval returns JSON with status='approved' and request_id."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -630,9 +580,7 @@ class TestSystemAdminAttemptLogged:
     """
 
     @pytest.mark.asyncio
-    async def test_approval_system_admin_attempt_rejected(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_system_admin_attempt_rejected(self, db_session: AsyncSession):
         """SYSTEM_ADMIN approval attempt returns 403."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -646,9 +594,7 @@ class TestSystemAdminAttemptLogged:
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_approval_system_admin_attempt_logged(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_system_admin_attempt_logged(self, db_session: AsyncSession):
         """
         Req 12.4: SYSTEM_ADMIN approval attempt must persist an
         UNAUTHORIZED_APPROVAL_ATTEMPT AuditEvent.
@@ -672,14 +618,11 @@ class TestSystemAdminAttemptLogged:
         )
         events = result.scalars().all()
         assert len(events) == 1, (
-            "An UNAUTHORIZED_APPROVAL_ATTEMPT audit event must be recorded when "
-            "a SYSTEM_ADMIN tries to approve"
+            "An UNAUTHORIZED_APPROVAL_ATTEMPT audit event must be recorded when " "a SYSTEM_ADMIN tries to approve"
         )
 
     @pytest.mark.asyncio
-    async def test_approval_system_admin_audit_event_records_actor(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_system_admin_audit_event_records_actor(self, db_session: AsyncSession):
         """
         UNAUTHORIZED_APPROVAL_ATTEMPT AuditEvent must record the SYSTEM_ADMIN's
         user_id as actor_id.
@@ -702,14 +645,11 @@ class TestSystemAdminAttemptLogged:
         event = result.scalars().first()
         assert event is not None
         assert event.actor_id == sys_admin.user_id, (
-            "UNAUTHORIZED_APPROVAL_ATTEMPT AuditEvent.actor_id must be the "
-            "SYSTEM_ADMIN's user_id"
+            "UNAUTHORIZED_APPROVAL_ATTEMPT AuditEvent.actor_id must be the " "SYSTEM_ADMIN's user_id"
         )
 
     @pytest.mark.asyncio
-    async def test_approval_system_admin_audit_event_payload_contains_role(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_system_admin_audit_event_payload_contains_role(self, db_session: AsyncSession):
         """
         UNAUTHORIZED_APPROVAL_ATTEMPT payload must include the attempted role
         so it is auditable.
@@ -732,15 +672,11 @@ class TestSystemAdminAttemptLogged:
         event = result.scalars().first()
         assert event is not None
         payload = event.payload
-        assert "role" in payload, (
-            "UNAUTHORIZED_APPROVAL_ATTEMPT payload must contain 'role'"
-        )
+        assert "role" in payload, "UNAUTHORIZED_APPROVAL_ATTEMPT payload must contain 'role'"
         assert payload["role"] == "SYSTEM_ADMIN"
 
     @pytest.mark.asyncio
-    async def test_approval_system_admin_no_status_change(
-        self, db_session: AsyncSession
-    ):
+    async def test_approval_system_admin_no_status_change(self, db_session: AsyncSession):
         """Request status must not change when SYSTEM_ADMIN tries to approve."""
         seeded = await _seed_base(db_session)
         request: InvoiceRequest = seeded["request"]
@@ -751,12 +687,8 @@ class TestSystemAdminAttemptLogged:
         with TestClient(app) as client_http:
             client_http.post(f"/requests/{request.request_id}/approve")
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(
-                InvoiceRequest.request_id == request.request_id
-            )
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request.request_id))
         refreshed = result.scalar_one()
-        assert refreshed.status == RequestStatus.READY_FOR_REVIEW, (
-            "Request status must stay READY_FOR_REVIEW after SYSTEM_ADMIN attempt"
-        )
+        assert (
+            refreshed.status == RequestStatus.READY_FOR_REVIEW
+        ), "Request status must stay READY_FOR_REVIEW after SYSTEM_ADMIN attempt"

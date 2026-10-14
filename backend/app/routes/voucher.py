@@ -4,16 +4,18 @@ Voucher endpoints.
 
 GET /requests/{request_id}/voucher-preview
   - Authorized: FINANCE_REVIEWER or CLIENT_PIC with active ClientAssignment
-  - Guard: request.status must be AMIGA_REVIEWED
+  - Guard: request.status must be AMIGA_REVIEWED or SENT_TO_CLIENT
   - Returns: VoucherPreviewResponse with all approved fields + authorization disclaimer
 
 POST /requests/{request_id}/voucher-pdf
-  - Authorized: CLIENT_PIC with active ClientAssignment
+  - Authorized: CLIENT_PIC or FINANCE_REVIEWER with active ClientAssignment
   - Guard: request.status must be AMIGA_REVIEWED
   - Pipeline: load data → render HTML → generate PDF → upload S3 → persist → audit → telemetry
 """
+
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -29,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.dependencies import get_current_user, get_db, require_role
+from app.dependencies import get_db, require_role
 from app.models.audit import AuditEvent, AuditEventType
 from app.models.draft import Draft
 from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
@@ -47,8 +49,9 @@ from app.schemas.voucher_schemas import (
     VoucherPreviewResponse,
 )
 from app.services.audit_service import log_event
+from app.services.pdf_service import render_html_pdf
 from app.services.tax_service import compute_tax_summary
-from app.services.template_service import load_active_template
+from app.services.template_service import load_active_template, seed_default_template
 from app.storage import StorageError, file_store
 
 
@@ -68,6 +71,7 @@ _PDF_SLA_MS = 5_000
 
 # ── GET /requests/{request_id}/voucher-preview ────────────────────────────────
 
+
 @router.get(
     "/{request_id}/voucher-preview",
     response_model=VoucherPreviewResponse,
@@ -86,20 +90,18 @@ async def get_voucher_preview(
     Access rules:
     - Role must be FINANCE_REVIEWER or CLIENT_PIC (Req 14.3)
     - User must hold an active ClientAssignment for the request's client
-    - Request must be in AMIGA_REVIEWED status (Req 14.1)
+    - Request must be approved or already downloaded by the client
 
     Response time target: ≤ 3 seconds (Req 14.1, 14.3)
     """
     # ── 0. Load request ───────────────────────────────────────────────────────
-    result = await db.execute(
-        select(InvoiceRequest).where(InvoiceRequest.request_id == request_id)
-    )
+    result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id))
     req = result.scalar_one_or_none()
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
 
     # ── 1. Status guard (Req 14.1) ────────────────────────────────────────────
-    if req.status != RequestStatus.AMIGA_REVIEWED:
+    if req.status not in (RequestStatus.AMIGA_REVIEWED, RequestStatus.SENT_TO_CLIENT):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Voucher preview is only available for Requests in AMIGA_REVIEWED status.",
@@ -114,9 +116,7 @@ async def get_voucher_preview(
         )
 
     # ── 3. Load draft ─────────────────────────────────────────────────────────
-    draft_result = await db.execute(
-        select(Draft).where(Draft.request_id == request_id)
-    )
+    draft_result = await db.execute(select(Draft).where(Draft.request_id == request_id))
     draft = draft_result.scalar_one_or_none()
     if draft is None:
         raise HTTPException(
@@ -125,9 +125,7 @@ async def get_voucher_preview(
         )
 
     # ── 4. Load HeaderFields ──────────────────────────────────────────────────
-    header_result = await db.execute(
-        select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
-    )
+    header_result = await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
     header = header_result.scalar_one_or_none()
 
     header_preview: HeaderFieldsPreview | None = None
@@ -146,9 +144,7 @@ async def get_voucher_preview(
 
     # ── 5. Load LineItems ─────────────────────────────────────────────────────
     line_items_result = await db.execute(
-        select(LineItem)
-        .where(LineItem.draft_id == draft.draft_id)
-        .order_by(LineItem.sequence_number)
+        select(LineItem).where(LineItem.draft_id == draft.draft_id).order_by(LineItem.sequence_number)
     )
     line_items = list(line_items_result.scalars().all())
 
@@ -156,9 +152,7 @@ async def get_voucher_preview(
     line_item_ids = [item.line_item_id for item in line_items]
     tax_map: dict[str, TaxAssignment] = {}
     if line_item_ids:
-        ta_result = await db.execute(
-            select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids))
-        )
+        ta_result = await db.execute(select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids)))
         for ta in ta_result.scalars().all():
             tax_map[str(ta.line_item_id)] = ta
 
@@ -174,18 +168,16 @@ async def get_voucher_preview(
                 unit=item.unit,
                 unit_price=str(item.unit_price) if item.unit_price is not None else None,
                 line_total=str(item.line_total) if item.line_total is not None else None,
-                tax_type=(
-                    ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type)
-                ) if ta is not None else None,
+                tax_type=(ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type))
+                if ta is not None
+                else None,
                 tax_rate=str(ta.tax_rate) if (ta is not None and ta.tax_rate is not None) else None,
                 tax_amount=str(ta.tax_amount) if (ta is not None and ta.tax_amount is not None) else None,
             )
         )
 
     # ── 7. Load PaymentDetails ────────────────────────────────────────────────
-    payment_result = await db.execute(
-        select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-    )
+    payment_result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
     payment = payment_result.scalar_one_or_none()
 
     payment_preview: PaymentDetailsPreview | None = None
@@ -209,15 +201,16 @@ async def get_voucher_preview(
 
 # ── POST /requests/{request_id}/voucher-pdf ───────────────────────────────────
 
+
 @router.post(
     "/{request_id}/voucher-pdf",
     status_code=status.HTTP_201_CREATED,
-    summary="Generate a Voucher PDF for an approved request (Client PIC only)",
+    summary="Generate a Voucher PDF for an approved request",
 )
 async def generate_voucher_pdf(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("CLIENT_PIC")),
+    current_user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
 ) -> dict:
     """
     Full pipeline:
@@ -236,9 +229,7 @@ async def generate_voucher_pdf(
     Returns 201 with voucher_pdf_id, file_key, generated_at.
     """
     # ── 0. Load request ───────────────────────────────────────────────────────
-    result = await db.execute(
-        select(InvoiceRequest).where(InvoiceRequest.request_id == request_id)
-    )
+    result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id))
     req = result.scalar_one_or_none()
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
@@ -258,13 +249,27 @@ async def generate_voucher_pdf(
             detail="You are not authorized to access Requests for this client.",
         )
 
+    existing = (
+        await db.execute(
+            select(VoucherPDF)
+            .where(VoucherPDF.request_id == request_id)
+            .order_by(VoucherPDF.generated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return {
+            "voucher_pdf_id": str(existing.voucher_pdf_id),
+            "file_key": existing.file_key,
+            "generated_at": existing.generated_at.isoformat(),
+        }
+
     # ── 3. Load active template (Req 22.3) ────────────────────────────────────
+    await seed_default_template(db)
     template = await load_active_template(db)
 
     # ── 4. Gather draft data ──────────────────────────────────────────────────
-    draft_result = await db.execute(
-        select(Draft).where(Draft.request_id == request_id)
-    )
+    draft_result = await db.execute(select(Draft).where(Draft.request_id == request_id))
     draft = draft_result.scalar_one_or_none()
     if draft is None:
         raise HTTPException(
@@ -272,9 +277,7 @@ async def generate_voucher_pdf(
             detail="Voucher PDF generation failed. Please try again.",
         )
 
-    header_result = await db.execute(
-        select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
-    )
+    header_result = await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
     header = header_result.scalar_one_or_none()
 
     line_items_result = await db.execute(
@@ -282,18 +285,14 @@ async def generate_voucher_pdf(
     )
     line_items = list(line_items_result.scalars().all())
 
-    payment_result = await db.execute(
-        select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-    )
+    payment_result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
     payment = payment_result.scalar_one_or_none()
 
     # Load tax assignments for all line items
     line_item_ids = [item.line_item_id for item in line_items]
     tax_map: dict[str, TaxAssignment] = {}
     if line_item_ids:
-        ta_result = await db.execute(
-            select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids))
-        )
+        ta_result = await db.execute(select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids)))
         for ta in ta_result.scalars().all():
             tax_map[str(ta.line_item_id)] = ta
 
@@ -308,21 +307,24 @@ async def generate_voucher_pdf(
     line_items_table = []
     for item in line_items:
         ta = tax_map.get(str(item.line_item_id))
-        line_items_table.append({
-            "description": item.description or "",
-            "quantity": str(item.quantity) if item.quantity is not None else "",
-            "unit": item.unit or "",
-            "unit_price": str(item.unit_price) if item.unit_price is not None else "",
-            "line_total": str(item.line_total) if item.line_total is not None else "",
-            "tax_type": (ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type)) if ta else "NO_TAX",
-            "tax_amount": str(ta.tax_amount) if (ta and ta.tax_amount is not None) else "0",
-        })
+        line_items_table.append(
+            {
+                "description": item.description or "",
+                "quantity": str(item.quantity) if item.quantity is not None else "",
+                "unit": item.unit or "",
+                "unit_price": str(item.unit_price) if item.unit_price is not None else "",
+                "line_total": str(item.line_total) if item.line_total is not None else "",
+                "tax_type": (ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type))
+                if ta
+                else "NO_TAX",
+                "tax_amount": str(ta.tax_amount) if (ta and ta.tax_amount is not None) else "0",
+            }
+        )
 
     # Tax summary
     tax_result = compute_tax_summary(line_items, tax_map, header_subtotal)
     tax_summary_table = [
-        {"tax_type": row["tax_type"], "subtotal": str(row["subtotal"])}
-        for row in tax_result["per_type_subtotals"]
+        {"tax_type": row["tax_type"], "subtotal": str(row["subtotal"])} for row in tax_result["per_type_subtotals"]
     ]
 
     context = {
@@ -340,8 +342,8 @@ async def generate_voucher_pdf(
         "line_items_table": line_items_table,
         # Tax summary
         "tax_summary_table": tax_summary_table,
-        "total_tax": str(tax_result["total_tax"]),
-        "grand_total": str(tax_result["grand_total"]),
+        "total_tax": str(h.tax_amount if h and h.tax_amount is not None else tax_result["total_tax"]),
+        "grand_total": str(h.total_amount if h and h.total_amount is not None else tax_result["grand_total"]),
         # Payment details
         "bank_account_number": (payment.bank_account_number or "") if payment else "",
         "bank_name": (payment.bank_name or "") if payment else "",
@@ -356,13 +358,13 @@ async def generate_voucher_pdf(
     try:
         # ── 6. Render HTML ────────────────────────────────────────────────────
         rendered_html = (
-            jinja2.Environment(loader=jinja2.BaseLoader())
+            jinja2.Environment(loader=jinja2.BaseLoader(), autoescape=True)
             .from_string(template.template_content)
             .render(context)
         )
 
         # ── 7. Convert to PDF ─────────────────────────────────────────────────
-        pdf_bytes: bytes = weasyprint.HTML(string=rendered_html).write_pdf()
+        pdf_bytes: bytes = await asyncio.to_thread(render_html_pdf, rendered_html, weasyprint)
 
         # ── 8. Compute hashes ─────────────────────────────────────────────────
         disclaimer_hash = hashlib.sha256(disclaimer_text.encode()).hexdigest()
@@ -439,6 +441,7 @@ async def generate_voucher_pdf(
         db.add(telemetry_record)
         await db.commit()
     except Exception as exc:  # noqa: BLE001
+        await db.rollback()
         logger.warning("Telemetry write failed for voucher %s (best-effort): %s", voucher_pdf_id, exc)
 
     return {
@@ -450,17 +453,18 @@ async def generate_voucher_pdf(
 
 # ── GET /requests/{request_id}/voucher-pdf ────────────────────────────────────
 
+
 @router.get(
     "/{request_id}/voucher-pdf",
-    summary="Download the Voucher PDF for an approved request (Client PIC only)",
+    summary="Download the Voucher PDF for an approved request (Client PIC or Finance Reviewer)",
 )
 async def download_voucher_pdf(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("CLIENT_PIC")),
+    current_user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
 ) -> StreamingResponse:
     """
-    Download the generated Voucher PDF and trigger the SENT_TO_CLIENT transition.
+    Download the generated Voucher PDF; a Client PIC download records delivery.
 
     On first call:
       1. Write VOUCHER_DOWNLOADED AuditEvent
@@ -478,9 +482,7 @@ async def download_voucher_pdf(
     Requirements: 16.1, 16.2, 16.3, 16.4, 16.5
     """
     # ── 0. Load request ───────────────────────────────────────────────────────
-    result = await db.execute(
-        select(InvoiceRequest).where(InvoiceRequest.request_id == request_id)
-    )
+    result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id))
     req = result.scalar_one_or_none()
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
@@ -505,13 +507,28 @@ async def download_voucher_pdf(
 
     # ── 3. Load VoucherPDF record ─────────────────────────────────────────────
     voucher_result = await db.execute(
-        select(VoucherPDF).where(VoucherPDF.request_id == request_id)
+        select(VoucherPDF).where(VoucherPDF.request_id == request_id).order_by(VoucherPDF.generated_at.desc()).limit(1)
     )
     voucher_record = voucher_result.scalar_one_or_none()
     if voucher_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No voucher PDF has been generated for this Request.",
+        )
+
+    # ── 8. Fetch PDF bytes from S3 ────────────────────────────────────────────
+    try:
+        pdf_bytes = await file_store.download(voucher_record.file_key)
+    except StorageError as exc:
+        logger.error(
+            "Failed to download voucher PDF for request %s (key=%s): %s",
+            request_id,
+            voucher_record.file_key,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve the voucher PDF. Please try again.",
         )
 
     # ── 4. Idempotency check — has SENT_TO_CLIENT already been recorded? ──────
@@ -525,7 +542,7 @@ async def download_voucher_pdf(
     )
     already_sent = existing_event_result.scalar_one_or_none() is not None
 
-    if not already_sent:
+    if not already_sent and current_user.role.value == "CLIENT_PIC":
         # ── 5. Write VOUCHER_DOWNLOADED audit event (Req 16.1) ────────────────
         downloaded_at = datetime.now(timezone.utc)
         await log_event(
@@ -558,21 +575,6 @@ async def download_voucher_pdf(
         await request_repository.update_status(db, request_id, RequestStatus.SENT_TO_CLIENT)
 
         await db.commit()
-
-    # ── 8. Fetch PDF bytes from S3 ────────────────────────────────────────────
-    try:
-        pdf_bytes = await file_store.download(voucher_record.file_key)
-    except StorageError as exc:
-        logger.error(
-            "Failed to download voucher PDF for request %s (key=%s): %s",
-            request_id,
-            voucher_record.file_key,
-            exc,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve the voucher PDF. Please try again.",
-        )
 
     # ── 9. Stream PDF to caller ───────────────────────────────────────────────
     return StreamingResponse(

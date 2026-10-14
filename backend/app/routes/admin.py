@@ -1,100 +1,72 @@
-# backend/app/routes/admin.py
+"""Versioned, editable voucher templates used for future approvals."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
+from jinja2 import Environment, TemplateSyntaxError, meta
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_role
 from app.models.user import User
 from app.models.voucher import VoucherTemplate
+from app.services.template_service import _DEFAULT_TEMPLATE_PATH
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-# All required Jinja2 placeholders that every template version must contain
-_REQUIRED_PLACEHOLDERS = [
-    "{{vendor_name}}",
-    "{{invoice_number}}",
-    "{{invoice_date}}",
-    "{{line_items_table}}",
-    "{{tax_summary_table}}",
-    "{{subtotal}}",
-    "{{total_tax}}",
-    "{{grand_total}}",
-    "{{bank_account_number}}",
-    "{{bank_name}}",
-    "{{payment_reference}}",
-    "{{authorization_disclaimer}}",
-]
+_REQUIRED_FIELDS = {"vendor_name", "invoice_number", "line_items_table", "authorization_disclaimer"}
 
 
-@router.post(
-    "/templates",
-    status_code=status.HTTP_201_CREATED,
-    summary="Upload a new voucher template version (System Admin only)",
-)
+@router.get("/templates")
+async def list_templates(db: AsyncSession = Depends(get_db), admin: User = Depends(require_role("SYSTEM_ADMIN"))):
+    rows = (await db.execute(select(VoucherTemplate).order_by(VoucherTemplate.created_at.desc()))).scalars().all()
+    return {
+        "templates": [
+            {
+                "template_id": t.template_id,
+                "version": t.version,
+                "template_content": t.template_content,
+                "is_active": t.is_active,
+                "created_at": t.created_at,
+            }
+            for t in rows
+        ],
+        "default_template": _DEFAULT_TEMPLATE_PATH.read_text(encoding="utf-8"),
+    }
+
+
+@router.post("/templates", status_code=status.HTTP_201_CREATED)
 async def create_template(
     version: str = Form(...),
     template_content: str = Form(...),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_role("SYSTEM_ADMIN")),
-) -> dict:
-    """
-    Upload a new Jinja2 voucher template version.
-
-    - Validates that all required placeholders are present.
-    - Within a single transaction: activates the new template and
-      deactivates the previously active one.
-    - Returns 201 with `template_id` and `version`.
-    """
-    # ── Validate version string ───────────────────────────────────────────────
+):
+    """Save and activate a new version. Already generated vouchers remain unchanged."""
     version = version.strip()
-    if not version:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="version must not be empty.",
-        )
-
-    # ── Check all required placeholders are present ───────────────────────────
-    missing = [p for p in _REQUIRED_PLACEHOLDERS if p not in template_content]
+    if not version or len(version) > 100:
+        raise HTTPException(422, "Version must contain 1–100 characters.")
+    if not template_content.strip() or len(template_content) > 250000:
+        raise HTTPException(422, "Template must contain 1–250,000 characters.")
+    try:
+        variables = meta.find_undeclared_variables(Environment().parse(template_content))
+    except TemplateSyntaxError as exc:
+        raise HTTPException(422, f"Invalid template syntax at line {exc.lineno}: {exc.message}")
+    missing = _REQUIRED_FIELDS - variables
     if missing:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Template is missing required placeholders: {missing}",
-        )
-
-    # ── Check version uniqueness ──────────────────────────────────────────────
-    existing = await db.execute(
-        select(VoucherTemplate).where(VoucherTemplate.version == version)
-    )
-    if existing.scalars().first() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"A template with version '{version}' already exists.",
-        )
-
-    # ── Within a single transaction: deactivate old, insert new ──────────────
-    # Deactivate any currently active template
-    await db.execute(
-        update(VoucherTemplate)
-        .where(VoucherTemplate.is_active.is_(True))
-        .values(is_active=False)
-    )
-
-    new_template = VoucherTemplate(
+        raise HTTPException(422, f"Template is missing required fields: {', '.join(sorted(missing))}")
+    existing = await db.scalar(select(VoucherTemplate).where(VoucherTemplate.version == version))
+    if existing:
+        raise HTTPException(409, f"A template with version '{version}' already exists.")
+    await db.execute(update(VoucherTemplate).where(VoucherTemplate.is_active.is_(True)).values(is_active=False))
+    template = VoucherTemplate(
         template_id=uuid.uuid4(),
         version=version,
         template_content=template_content,
         is_active=True,
         created_by=admin.user_id,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
-    db.add(new_template)
+    db.add(template)
     await db.flush()
-
-    return {
-        "template_id": str(new_template.template_id),
-        "version": new_template.version,
-    }
+    return {"template_id": template.template_id, "version": template.version}

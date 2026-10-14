@@ -65,6 +65,14 @@ _TEST_TEMPLATE = """\
 # ===========================================================================
 
 
+@pytest.fixture(autouse=True)
+def approval_generation_stub():
+    with patch(
+        "app.routes.requests.generate_approved_voucher", AsyncMock(return_value={"voucher_pdf_id": "test-voucher"})
+    ):
+        yield
+
+
 @pytest.fixture
 async def db_session():
     """Fresh in-memory SQLite async session for each test."""
@@ -296,9 +304,7 @@ class TestHandoverFlowCheckpoint:
 
         assert resp.status_code == 200, f"Approve failed: {resp.json()}"
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(InvoiceRequest.request_id == req.request_id)
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == req.request_id))
         refreshed = result.scalar_one()
         assert refreshed.status == RequestStatus.AMIGA_REVIEWED
 
@@ -459,7 +465,7 @@ class TestHandoverFlowCheckpoint:
             mock_store.download = AsyncMock(return_value=_FAKE_PDF)
             with TestClient(pic_app) as http:
                 http.post(f"/requests/{req.request_id}/voucher-pdf")
-                http.get(f"/requests/{req.request_id}/voucher-pdf")   # first
+                http.get(f"/requests/{req.request_id}/voucher-pdf")  # first
                 resp2 = http.get(f"/requests/{req.request_id}/voucher-pdf")  # second
 
         assert resp2.status_code == 200, f"Second download failed: {resp2.status_code}"
@@ -493,16 +499,12 @@ class TestHandoverFlowCheckpoint:
             mock_store.download = AsyncMock(return_value=_FAKE_PDF)
             with TestClient(pic_app) as http:
                 http.post(f"/requests/{req.request_id}/voucher-pdf")
-                http.get(f"/requests/{req.request_id}/voucher-pdf")   # first download
-                http.get(f"/requests/{req.request_id}/voucher-pdf")   # second download
+                http.get(f"/requests/{req.request_id}/voucher-pdf")  # first download
+                http.get(f"/requests/{req.request_id}/voucher-pdf")  # second download
 
-        result = await db_session.execute(
-            select(InvoiceRequest).where(InvoiceRequest.request_id == req.request_id)
-        )
+        result = await db_session.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == req.request_id))
         final = result.scalar_one()
-        assert final.status == RequestStatus.SENT_TO_CLIENT, (
-            f"Expected SENT_TO_CLIENT, got {final.status}"
-        )
+        assert final.status == RequestStatus.SENT_TO_CLIENT, f"Expected SENT_TO_CLIENT, got {final.status}"
 
     @pytest.mark.asyncio
     async def test_exactly_one_voucher_downloaded_event_after_two_downloads(
@@ -543,9 +545,7 @@ class TestHandoverFlowCheckpoint:
             )
         )
         events = result.scalars().all()
-        assert len(events) == 1, (
-            f"Expected exactly 1 VOUCHER_DOWNLOADED event, got {len(events)}"
-        )
+        assert len(events) == 1, f"Expected exactly 1 VOUCHER_DOWNLOADED event, got {len(events)}"
 
     @pytest.mark.asyncio
     async def test_exactly_one_sent_to_client_status_change_after_two_downloads(
@@ -587,12 +587,10 @@ class TestHandoverFlowCheckpoint:
         )
         all_status_changes = result.scalars().all()
         sent_to_client_changes = [
-            e for e in all_status_changes
-            if e.payload.get("to_status") == RequestStatus.SENT_TO_CLIENT.value
+            e for e in all_status_changes if e.payload.get("to_status") == RequestStatus.SENT_TO_CLIENT.value
         ]
         assert len(sent_to_client_changes) == 1, (
-            f"Expected exactly 1 SENT_TO_CLIENT STATUS_CHANGED event, "
-            f"got {len(sent_to_client_changes)}"
+            f"Expected exactly 1 SENT_TO_CLIENT STATUS_CHANGED event, " f"got {len(sent_to_client_changes)}"
         )
 
     @pytest.mark.asyncio
@@ -627,9 +625,7 @@ class TestHandoverFlowCheckpoint:
                 http.get(f"/requests/{req.request_id}/voucher-pdf")
                 http.get(f"/requests/{req.request_id}/voucher-pdf")
 
-        result = await db_session.execute(
-            select(AuditEvent).where(AuditEvent.request_id == req.request_id)
-        )
+        result = await db_session.execute(select(AuditEvent).where(AuditEvent.request_id == req.request_id))
         events = result.scalars().all()
         event_types = {e.event_type for e in events}
 

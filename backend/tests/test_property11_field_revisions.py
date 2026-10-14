@@ -51,7 +51,7 @@ class TestFieldRevisionRecording:
     @given(
         field_path=st.from_regex(r"^(header|line_items|\d+|payment_details)\..+$"),
         old_val=st.text(min_size=1, max_size=100),
-        new_val=st.text(min_size=1, max_size=100).filter(lambda x: x != old_val),
+        new_val=st.text(min_size=1, max_size=100),
         actor_role=st.sampled_from(["FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN"]),
     )
     async def test_field_revision_records_all_required_fields(
@@ -65,6 +65,8 @@ class TestFieldRevisionRecording:
         # Arrange
         request_id = uuid.uuid4()
         actor_id = uuid.uuid4()
+        from hypothesis import assume
+        assume(new_val != old_val)
         revised_at = datetime.now(timezone.utc)
 
         # Simulate the revision record that should be created
@@ -135,7 +137,6 @@ class TestFieldRevisionAuthorization:
         unauthorized_roles = [
             UserRole.CLIENT_PIC,
             UserRole.INTAKE_SUPPORT,
-            UserRole.ROBOT_ADMIN,
         ]
 
         for role in unauthorized_roles:
