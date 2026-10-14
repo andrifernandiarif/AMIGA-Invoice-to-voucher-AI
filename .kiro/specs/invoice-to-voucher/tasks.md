@@ -305,7 +305,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 15: Download Gated on Status; Exactly One SENT_TO_CLIENT Event**
     - **Validates: Requirements 15.3, 16.1, 16.2, 16.3, 16.4**
 
-- [ ] 31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.
+- [x] 31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.
 
 ---
 
