@@ -30,10 +30,10 @@ ACCEPTED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CreateRequestResponse)
 async def upload_invoice(
     files: List[UploadFile],
-    client_id: uuid.UUID = Form(...),
-    request_type: str = Form(..., min_length=1, max_length=100),
-    channel: str = Form(..., min_length=1, max_length=100),
-    request_date: date = Form(...),
+    client_id: uuid.UUID = Form(..., description="Use GET /clients to find your client_id"),
+    request_date: date = Form(..., description="Invoice date, e.g. 2026-10-14"),
+    request_type: str = Form(default="standard", description="Type of request (default: standard)"),
+    channel: str = Form(default="upload", description="Submission channel (default: upload)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("CLIENT_PIC", "INTAKE_SUPPORT")),
 ):
@@ -84,7 +84,9 @@ async def upload_invoice(
         try:
             await file_store.upload(key, data, ct)
         except StorageError as exc:
-            raise HTTPException(502, f"S3 upload failed for '{name}': {exc}")
+            raise HTTPException(502, detail=f"S3 upload failed for '{name}': {exc}")
+        except Exception as exc:
+            raise HTTPException(502, detail=f"File storage error for '{name}': {exc}")
         evidence_keys.append(key)
         evidence_meta.append(
             {"filename": name, "content_type": ct, "file_key": key, "upload_order": order}
@@ -143,15 +145,22 @@ async def dismiss_duplicate(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("FINANCE_REVIEWER")),
-    _: None = Depends(require_client_assignment(request_id)),
 ):
     """
     Remove the POSSIBLE_DUPLICATE flag from a request.
     Only Finance Reviewer role can dismiss duplicates.
     Requires active client assignment for the request's client.
     """
-    # Fetch the request
+    # Verify client assignment
     req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise HTTPException(404, "Request not found.")
+    
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(403, "You are not authorized to access this request.")
+    
+    # Fetch the request (already done above for assignment check)
     if req is None:
         raise HTTPException(404, "Request not found.")
 

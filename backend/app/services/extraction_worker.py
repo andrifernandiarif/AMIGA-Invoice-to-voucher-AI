@@ -89,7 +89,7 @@ async def _persist_extraction(
     db: AsyncSession,
     request_id: uuid.UUID,
     result: ExtractionResult,
-) -> tuple[HeaderFields | None, list[LineItem], PaymentDetails | None]:
+) -> tuple[Draft, HeaderFields | None, list[LineItem], PaymentDetails | None]:
     """
     Persist extracted fields into drafts / header_fields / line_items /
     payment_details. Returns the ORM objects needed for validation.
@@ -161,7 +161,7 @@ async def _persist_extraction(
         await db.flush()
 
     await db.flush()
-    return header_orm, line_item_orms, payment_orm
+    return draft, header_orm, line_item_orms, payment_orm
 
 
 async def _fetch_evidence_files(
@@ -237,6 +237,7 @@ async def _process_job(job: ExtractionJob) -> None:
             
             if existing_draft:
                 # Load existing data for validation
+                draft = existing_draft
                 header_orm = await db.scalar(
                     select(HeaderFields).where(HeaderFields.draft_id == existing_draft.draft_id)
                 )
@@ -249,7 +250,7 @@ async def _process_job(job: ExtractionJob) -> None:
                 )
             else:
                 # Persist extracted fields
-                header_orm, line_item_orms, payment_orm = await _persist_extraction(
+                draft, header_orm, line_item_orms, payment_orm = await _persist_extraction(
                     db, job.request_id, result
                 )
 
