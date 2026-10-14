@@ -145,3 +145,65 @@ it("lets a reviewer accept a draft without flag gates and download evidence sepa
   ).toBe(false);
   click.mockRestore();
 });
+
+it("lets Client PIC refine a draft and locks editing after submitting for finance review", async () => {
+  const rid = "12345678-1234-1234-1234-123456789abc";
+  window.history.replaceState({}, "", `/requests/${rid}`);
+  sessionStorage.setItem("amiga_access_token", "token");
+  const detail = {
+    request_id: rid,
+    client_id: "c",
+    status: "READY_FOR_REFINEMENT",
+    flags: [],
+    rejection_reason: null,
+    evidence_files: [],
+    tax_assignments: {},
+    draft: {
+      header_fields: { vendor_name: "Vendor" },
+      line_items: [
+        {
+          line_item_id: "item",
+          sequence_number: 1,
+          description: "Service",
+          quantity: "1",
+          unit_price: "100",
+          line_total: "100",
+        },
+      ],
+      payment_details: null,
+    },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init?: RequestInit) => {
+      if (url === "/api/auth/me")
+        return response({
+          user_id: "pic",
+          username: "client",
+          role: "CLIENT_PIC",
+        });
+      if (url === "/api/tax-options") return response([]);
+      if (String(url).endsWith("/submit-review") && init?.method === "POST") {
+        detail.status = "READY_FOR_REVIEW";
+        return response({ status: detail.status });
+      }
+      return response(detail);
+    }),
+  );
+  render(<App />);
+  await screen.findByRole("heading", { name: "Refine invoice." });
+  expect(screen.getByLabelText("Vendor name")).toBeEnabled();
+  expect(screen.getByLabelText("Tax assignment for item item")).toBeEnabled();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Submit to Finance Reviewer" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Vendor name")).toBeDisabled(),
+  );
+  expect(
+    screen.queryByRole("button", { name: "Submit to Finance Reviewer" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Accept & generate voucher" }),
+  ).not.toBeInTheDocument();
+});

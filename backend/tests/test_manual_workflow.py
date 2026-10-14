@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, inspect
 
 from app.dependencies import get_current_user, get_db
 from app.models.audit import AuditEvent, AuditEventType
@@ -18,6 +18,7 @@ from app.models.request import RequestStatus
 from app.models.user import UserRole
 from app.models.voucher import VoucherPDF, VoucherTemplate
 from app.routes.admin import router as admin_router
+from app.routes.refinement import router as refinement_router
 from app.routes.requests import router as requests_router
 from app.routes.voucher import router as voucher_router
 from app.routes.workspace import router as workspace_router
@@ -26,7 +27,7 @@ from tests.test_approval import _seed_base, db_session  # noqa: F401
 
 async def client_for(db, user):
     app = FastAPI()
-    for router in (workspace_router, requests_router, voucher_router, admin_router):
+    for router in (workspace_router, requests_router, voucher_router, admin_router, refinement_router):
         app.include_router(router)
 
     async def database():
@@ -38,7 +39,16 @@ async def client_for(db, user):
             raise
 
     app.dependency_overrides[get_db] = database
-    app.dependency_overrides[get_current_user] = lambda: user
+    user_id = inspect(user).identity[0]
+
+    async def authenticated_user():
+        from app.models.user import User
+
+        current = await db.get(User, user_id)
+        await db.refresh(current)
+        return current
+
+    app.dependency_overrides[get_current_user] = authenticated_user
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
@@ -241,7 +251,7 @@ async def test_extraction_does_not_run_discrepancy_validators(db_session):
         failure.assert_not_awaited()
     await db_session.refresh(req)
     await db_session.refresh(job)
-    assert req.status == RequestStatus.READY_FOR_REVIEW
+    assert req.status == RequestStatus.READY_FOR_REFINEMENT
     assert req.flags == []
     assert job.status == ExtractionJobStatus.DONE
 
@@ -292,7 +302,7 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
     assert job.status == ExtractionJobStatus.PENDING
 
 
-async def test_legacy_exception_with_extracted_draft_can_be_accepted(db_session):
+async def test_legacy_exception_requires_client_submission_before_acceptance(db_session):
     data = await seed(db_session)
     req = data["request"]
     req.status = RequestStatus.EXCEPTION
@@ -305,10 +315,9 @@ async def test_legacy_exception_with_extracted_draft_can_be_accepted(db_session)
             patch("app.routes.voucher.file_store.upload", AsyncMock()),
         ):
             response = await client.post(f"/requests/{req.request_id}/approve")
-    assert response.status_code == 200, response.text
-    assert response.json()["voucher"]["voucher_pdf_id"]
-    assert req.status == RequestStatus.AMIGA_REVIEWED
-    assert req.flags == []
+    assert response.status_code == 409, response.text
+    await db_session.refresh(req)
+    assert req.status == RequestStatus.EXCEPTION
 
 
 async def test_voucher_information_and_item_date_can_be_saved(db_session):

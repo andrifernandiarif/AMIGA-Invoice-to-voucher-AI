@@ -26,6 +26,7 @@ from app.repositories.user_repository import user_repository
 from app.schemas.request_schemas import FieldRevisionResponse
 from app.schemas.user_schemas import UserResponse
 from app.services.audit_service import log_event
+from app.services.manual_tax import load_assignments, assignment_dict, totals, refresh_assignments
 from app.storage import StorageError, file_store
 
 router = APIRouter(tags=["workspace"])
@@ -61,6 +62,17 @@ async def requests(db: AsyncSession = Depends(get_db), user: User = Depends(get_
         .where(ClientAssignment.user_id == user.user_id, ClientAssignment.is_active.is_(True))
         .order_by(InvoiceRequest.created_at.desc())
     )
+    if user.role.value == "FINANCE_REVIEWER":
+        stmt = stmt.where(
+            InvoiceRequest.status.in_(
+                [
+                    RequestStatus.READY_FOR_REVIEW,
+                    RequestStatus.AMIGA_REVIEWED,
+                    RequestStatus.SENT_TO_CLIENT,
+                    RequestStatus.REJECTED,
+                ]
+            )
+        )
     rows = (await db.execute(stmt)).all()
     return [
         {
@@ -88,6 +100,8 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
     )
     draft = (await db.execute(select(Draft).where(Draft.request_id == request_id))).scalar_one_or_none()
     data = None
+    tax_data = {}
+    total_data = None
     if draft:
         header = (
             await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
@@ -104,6 +118,9 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
         payment = (
             await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
         ).scalar_one_or_none()
+        tax_map = await load_assignments(db, items)
+        tax_data = {key: assignment_dict(value) for key, value in tax_map.items()}
+        total_data = totals(req, header, items, tax_map)
         data = {
             "draft_id": str(draft.draft_id),
             "ai_label_visible": draft.ai_label_visible,
@@ -131,6 +148,9 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
         "flags": [],
         "rejection_reason": req.rejection_reason,
         "draft": data,
+        "tax_assignments": tax_data,
+        "totals": total_data,
+        "refinement_submitted_at": req.refinement_submitted_at,
         "evidence_files": [fields(e, "evidence_id file_key original_filename content_type") for e in evidence],
     }
 
@@ -153,6 +173,17 @@ async def evidence(
     return Response(data, media_type=record.content_type, headers=headers)
 
 
+def ensure_editable(req, user):
+    if user.role.value == "CLIENT_PIC":
+        if req.status != RequestStatus.READY_FOR_REFINEMENT:
+            raise HTTPException(409, "Client edits are available only before submission to Finance Review.")
+    elif user.role.value in ("FINANCE_REVIEWER", "SYSTEM_ADMIN"):
+        if req.status != RequestStatus.READY_FOR_REVIEW:
+            raise HTTPException(409, "This request is not awaiting finance review.")
+    else:
+        raise HTTPException(403, "You cannot edit this request.")
+
+
 class FieldEdit(BaseModel):
     field_path: str = Field(max_length=200)
     new_value: str = Field(max_length=2000)
@@ -163,11 +194,10 @@ async def edit(
     request_id: uuid.UUID,
     body: FieldEdit,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("FINANCE_REVIEWER", "SYSTEM_ADMIN")),
+    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER", "SYSTEM_ADMIN")),
 ):
     req = await accessible_request(request_id, db, user, lock=True)
-    if req.status not in (RequestStatus.READY_FOR_REVIEW, RequestStatus.EXCEPTION):
-        raise HTTPException(409, "Only requests awaiting review can be edited.")
+    ensure_editable(req, user)
     draft = (await db.execute(select(Draft).where(Draft.request_id == request_id))).scalar_one_or_none()
     if not draft:
         raise HTTPException(409, "No extracted draft is available.")
@@ -232,17 +262,31 @@ async def edit(
     await log_event(
         db, AuditEventType.FIELD_REVISED, payload=body.model_dump(), request_id=request_id, actor_id=user.user_id
     )
+    if (
+        model is LineItem
+        and name in ("quantity", "unit_price")
+        and obj.quantity is not None
+        and obj.unit_price is not None
+    ):
+        previous_total = obj.line_total
+        obj.line_total = (Decimal(str(obj.quantity)) * Decimal(str(obj.unit_price))).quantize(Decimal("0.0001"))
+        if abs(obj.line_total) >= Decimal("1000000000000"):
+            raise HTTPException(422, "Calculated item total exceeds the supported amount.")
+        if previous_total != obj.line_total:
+            await request_repository.create_field_revision(
+                db,
+                request_id,
+                f"line_items.{parts[1]}.line_total",
+                str(previous_total) if previous_total is not None else None,
+                str(obj.line_total),
+                user.user_id,
+            )
     await db.flush()
+    try:
+        await refresh_assignments(db, draft.draft_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     req.flags = []
-    if req.status == RequestStatus.EXCEPTION:
-        req.status = RequestStatus.READY_FOR_REVIEW
-        await log_event(
-            db,
-            AuditEventType.STATUS_CHANGED,
-            payload={"from_status": "EXCEPTION", "to_status": "READY_FOR_REVIEW"},
-            request_id=request_id,
-            actor_id=user.user_id,
-        )
     req.updated_at = datetime.now(UTC)
     return {"changed": True, "status": req.status, "flags": []}
 

@@ -53,12 +53,41 @@ export interface Invoice {
   request_date: string;
   channel: string;
 }
+export interface TaxOption {
+  id: string;
+  tax_type: string;
+  label: string;
+  rate_percent: string | null;
+  note: string;
+  source_url?: string;
+}
+export interface TaxAssignment {
+  tax_type: string;
+  profile: string | null;
+  rate_percent: string;
+  base_amount: string | null;
+  base_is_manual: boolean;
+  effect: "ADD" | "DEDUCT";
+  amount: string;
+}
+export interface VoucherTotals {
+  base_amount: string | null;
+  added_tax: string;
+  withheld_tax: string;
+  fees: string;
+  rounding: string;
+  voucher_total: string | null;
+  calculated_from_items: boolean;
+}
 export interface Detail {
   request_id: string;
   client_id: string;
   status: string;
   flags: string[];
   rejection_reason: string | null;
+  tax_assignments?: Record<string, TaxAssignment>;
+  totals?: VoucherTotals | null;
+  refinement_submitted_at?: string | null;
   evidence_files: {
     file_key: string;
     original_filename: string;
@@ -76,7 +105,8 @@ export interface Detail {
 export const statusLabels: Record<string, string> = {
   QUEUED: "Queued",
   PROCESSING: "Processing",
-  READY_FOR_REVIEW: "Ready for review",
+  READY_FOR_REFINEMENT: "Ready to refine",
+  READY_FOR_REVIEW: "Submitted for review",
   EXCEPTION: "Extraction issue",
   AMIGA_REVIEWED: "Approved",
   SENT_TO_CLIENT: "Sent to client",

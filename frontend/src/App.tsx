@@ -19,6 +19,8 @@ import {
   tokenKey,
   User,
 } from "./api";
+import TaxEditor from "./components/TaxEditor";
+import { TaxOption } from "./api";
 import TemplateEditor from "./components/TemplateEditor";
 import VoucherDocument from "./components/VoucherDocument";
 
@@ -225,11 +227,22 @@ function Dashboard({
               tone: "purple",
             },
             {
-              title: "Ready for review",
-              value: items.filter((i) => i.status === "READY_FOR_REVIEW")
-                .length,
+              title:
+                user.role === "CLIENT_PIC"
+                  ? "Ready to refine"
+                  : "Ready for review",
+              value: items.filter(
+                (i) =>
+                  i.status ===
+                  (user.role === "CLIENT_PIC"
+                    ? "READY_FOR_REFINEMENT"
+                    : "READY_FOR_REVIEW"),
+              ).length,
               icon: "clock",
-              note: "Awaiting independent review",
+              note:
+                user.role === "CLIENT_PIC"
+                  ? "Check fields and assign taxes"
+                  : "Awaiting independent review",
               tone: "blue",
             },
             {
@@ -277,6 +290,8 @@ function Dashboard({
           <div className="workflow-trail">
             <span>Upload</span>
             <Icon name="arrow" size={15} />
+            <span>Refine</span>
+            <Icon name="arrow" size={15} />
             <span>Review</span>
             <Icon name="arrow" size={15} />
             <span>Voucher</span>
@@ -303,17 +318,22 @@ function Dashboard({
         </div>
         <div className="table-tools">
           <div className="tabs">
-            {["all", "READY_FOR_REVIEW", "PROCESSING", "AMIGA_REVIEWED"].map(
-              (s) => (
-                <button
-                  key={s}
-                  className={filter === s ? "active" : ""}
-                  onClick={() => setFilter(s)}
-                >
-                  {s === "all" ? "All requests" : statusLabels[s]}
-                </button>
-              ),
-            )}
+            {[
+              "all",
+              user.role === "CLIENT_PIC"
+                ? "READY_FOR_REFINEMENT"
+                : "READY_FOR_REVIEW",
+              "PROCESSING",
+              "AMIGA_REVIEWED",
+            ].map((s) => (
+              <button
+                key={s}
+                className={filter === s ? "active" : ""}
+                onClick={() => setFilter(s)}
+              >
+                {s === "all" ? "All requests" : statusLabels[s]}
+              </button>
+            ))}
           </div>
           <label className="search">
             <Icon name="search" size={17} />
@@ -648,6 +668,20 @@ function RequestView({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [changes, setChanges] = useState<Record<string, string>>({});
+  const [taxDirty, setTaxDirty] = useState<Record<string, boolean>>({});
+  const [taxOptions, setTaxOptions] = useState<TaxOption[]>([]);
+  const handleTaxDirty = useCallback(
+    (id: string, dirty: boolean) =>
+      setTaxDirty((prev) =>
+        prev[id] === dirty ? prev : { ...prev, [id]: dirty },
+      ),
+    [],
+  );
+  useEffect(() => {
+    api<TaxOption[]>("/tax-options")
+      .then(setTaxOptions)
+      .catch((e) => setError(e.message));
+  }, []);
   const [reason, setReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [evidenceIndex, setEvidenceIndex] = useState(0);
@@ -677,14 +711,15 @@ function RequestView({ user }: { user: User }) {
     return () => clearInterval(timer);
   }, [load]);
   useEffect(() => {
-    if (!Object.keys(changes).length) return;
+    if (!Object.keys(changes).length && !Object.values(taxDirty).some(Boolean))
+      return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [changes]);
+  }, [changes, taxDirty]);
   const evidenceKey = data?.evidence_files[evidenceIndex]?.file_key;
   useEffect(() => {
     setEvidenceUrl("");
@@ -783,11 +818,16 @@ function RequestView({ user }: { user: User }) {
       setError((e as Error).message);
     }
   }
+  const refining =
+    user.role === "CLIENT_PIC" && data?.status === "READY_FOR_REFINEMENT";
   const editable =
-    ["FINANCE_REVIEWER", "SYSTEM_ADMIN"].includes(user.role) &&
     !!data &&
-    ["READY_FOR_REVIEW", "EXCEPTION"].includes(data.status);
-  const dirty = Object.keys(changes).length > 0;
+    (refining ||
+      (["FINANCE_REVIEWER", "SYSTEM_ADMIN"].includes(user.role) &&
+        data.status === "READY_FOR_REVIEW"));
+
+  const dirty =
+    Object.keys(changes).length > 0 || Object.values(taxDirty).some(Boolean);
   useEffect(() => {
     if (!dirty) return;
     const guard = (event: MouseEvent) => {
@@ -837,7 +877,8 @@ function RequestView({ user }: { user: User }) {
         <div>
           <span className="eyebrow">WORKSPACE / REQUEST DETAIL</span>
           <h1>
-            Invoice review<span className="heading-dot">.</span>
+            {refining ? "Refine invoice" : "Invoice review"}
+            <span className="heading-dot">.</span>
           </h1>
           <p>
             INV-{requestId?.slice(0, 8).toUpperCase()} · Check the evidence,
@@ -885,10 +926,19 @@ function RequestView({ user }: { user: User }) {
               ))}
             </div>
             <div className="detail-actions">
+              {refining && (
+                <button
+                  className="primary"
+                  disabled={busy || dirty || !data.draft}
+                  onClick={() => action("submit-review")}
+                >
+                  {busy ? "Submitting…" : "Submit to Finance Reviewer"}
+                </button>
+              )}
               {editable && (
                 <button
                   className="secondary"
-                  disabled={!dirty || busy}
+                  disabled={!Object.keys(changes).length || busy}
                   onClick={save}
                 >
                   {busy
@@ -897,7 +947,7 @@ function RequestView({ user }: { user: User }) {
                 </button>
               )}
               {user.role === "FINANCE_REVIEWER" &&
-                ["READY_FOR_REVIEW", "EXCEPTION"].includes(data.status) && (
+                data.status === "READY_FOR_REVIEW" && (
                   <>
                     <button
                       className="danger-outline"
@@ -1094,9 +1144,9 @@ function RequestView({ user }: { user: User }) {
                     </div>
                     <h3 className="section-title">Voucher information</h3>
                     <p className="muted voucher-help">
-                      Nominal uses the reviewed total amount. Leave Nomor blank
-                      to generate a voucher number; Nama defaults to the vendor,
-                      and Tanggal/Periode to the invoice date.
+                      Nominal uses the voucher calculation below. Leave Nomor
+                      blank to generate a voucher number; Nama defaults to the
+                      vendor, and Tanggal/Periode to the invoice date.
                     </p>
                     <div className="form-grid">
                       {[
@@ -1132,8 +1182,50 @@ function RequestView({ user }: { user: User }) {
                             ),
                           )}
                         </div>
+                        <TaxEditor
+                          requestId={requestId!}
+                          itemId={item.line_item_id}
+                          lineTotal={item.line_total ?? null}
+                          assigned={data.tax_assignments?.[item.line_item_id]}
+                          options={taxOptions}
+                          editable={editable && !busy}
+                          onDirty={handleTaxDirty}
+                          onSaved={load}
+                          onSaving={setBusy}
+                        />
                       </div>
                     ))}
+                    {data.totals && (
+                      <div className="voucher-totals">
+                        <h3>Voucher calculation</h3>
+                        {[
+                          ["Item amounts", data.totals.base_amount],
+                          ["Additional tax", data.totals.added_tax],
+                          ["Withholding", data.totals.withheld_tax],
+                          ["Fees", data.totals.fees],
+                          ["Rounding", data.totals.rounding],
+                          ["Voucher total", data.totals.voucher_total],
+                        ].map(([name, value]) => (
+                          <div key={name!}>
+                            <span>{name}</span>
+                            <strong>
+                              {value === null
+                                ? "Enter all item totals"
+                                : new Intl.NumberFormat("id-ID", {
+                                    maximumFractionDigits: 2,
+                                  }).format(Number(value))}
+                            </strong>
+                          </div>
+                        ))}
+                        {data.totals.calculated_from_items && (
+                          <p>
+                            Calculated from item amounts and selected tax rows.
+                            Extracted invoice tax/total are shown above for
+                            reference and are not added again.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <h3 className="section-title">Payment details</h3>
                     {data.draft.payment_details || editable ? (
                       <div className="form-grid">

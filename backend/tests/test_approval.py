@@ -388,7 +388,7 @@ class TestExceptionStatusBlocked:
 
         assert resp.status_code == 409, f"Expected 409 for EXCEPTION status request, got {resp.status_code}"
         detail = resp.json().get("detail", "").lower()
-        assert "draft" in detail, f"Expected message about a missing draft, got: {detail!r}"
+        assert "submitted" in detail, f"Expected message about a missing draft, got: {detail!r}"
 
     @pytest.mark.asyncio
     async def test_approval_exception_status_unchanged(self, db_session: AsyncSession):

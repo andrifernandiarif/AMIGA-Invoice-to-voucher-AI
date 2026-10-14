@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routes.refinement import router as refinement_router
 from app.routes.workspace import router as workspace_router
 from app.routes.admin import router as admin_router
 from app.routes.auth import router as auth_router
@@ -51,6 +52,7 @@ app.add_middleware(
 )
 
 app.include_router(workspace_router)
+app.include_router(refinement_router)
 app.include_router(auth_router)
 app.include_router(clients_router)
 app.include_router(users_router)
@@ -62,4 +64,4 @@ app.include_router(voucher_router)
 
 @app.get("/health")
 async def health_check() -> dict:
-    return {"status": "ok", "workflow": "manual-review-v1"}
+    return {"status": "ok", "workflow": "client-refinement-v2"}

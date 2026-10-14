@@ -176,7 +176,7 @@ async def _mark_ready_for_manual_review(db: AsyncSession, request_id: uuid.UUID,
     """Run all validators and set the request status accordingly."""
     from sqlalchemy import update
 
-    new_status = RequestStatus.READY_FOR_REVIEW
+    new_status = RequestStatus.READY_FOR_REFINEMENT
     await db.execute(
         update(InvoiceRequest)
         .where(InvoiceRequest.request_id == request_id)

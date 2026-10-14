@@ -5,7 +5,7 @@ processes pending jobs without any Redis/RQ dependency.
 
 Lifecycle:
   PENDING  → claims job (IN_PROGRESS), sets Request to PROCESSING
-  success  → job DONE, Request to READY_FOR_REVIEW for manual review
+  success  → job DONE, Request to READY_FOR_REFINEMENT for Client PIC edits
   failure  → retry_count + 1; if retry_count < 3 reset to PENDING, else FAILED + Request EXCEPTION
 """
 
@@ -234,11 +234,11 @@ async def _process_job(job: ExtractionJob) -> None:
 
             # Extraction prepares data; the reviewer checks discrepancies manually.
             req.flags = []
-            await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REVIEW)
+            await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REFINEMENT)
             await log_event(
                 db,
                 AuditEventType.STATUS_CHANGED,
-                payload={"from": "PROCESSING", "to": "READY_FOR_REVIEW", "job_id": str(job.job_id)},
+                payload={"from": "PROCESSING", "to": "READY_FOR_REFINEMENT", "job_id": str(job.job_id)},
                 request_id=job.request_id,
                 actor_id=None,
             )
@@ -274,7 +274,7 @@ async def _process_job(job: ExtractionJob) -> None:
                 "ExtractionJob %s completed → request %s status=%s, duration=%dms",
                 job.job_id,
                 job.request_id,
-                RequestStatus.READY_FOR_REVIEW.value,
+                RequestStatus.READY_FOR_REFINEMENT.value,
                 record.duration_ms,
             )
 

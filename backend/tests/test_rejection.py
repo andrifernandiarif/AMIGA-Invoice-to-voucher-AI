@@ -521,7 +521,7 @@ class TestValidRejectionTransition:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "initial_status",
-        [RequestStatus.READY_FOR_REVIEW, RequestStatus.EXCEPTION],
+        [RequestStatus.READY_FOR_REVIEW],
     )
     async def test_reject_valid_transitions_to_rejected(
         self, db_session: AsyncSession, initial_status: RequestStatus

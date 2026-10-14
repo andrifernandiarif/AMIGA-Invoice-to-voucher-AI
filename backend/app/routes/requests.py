@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
@@ -211,13 +212,24 @@ async def approve_request(
     if req.uploader_id == current_user.user_id:
         raise HTTPException(403, "Self-approval is not permitted.")
 
-    # Old flag-based exceptions with a draft can still be reviewed manually.
-    if req.status == RequestStatus.EXCEPTION:
+    if req.status != RequestStatus.READY_FOR_REVIEW:
+        raise HTTPException(409, "The draft must be submitted by Client PIC before finance approval.")
+
+    if req.refinement_submitted_at is not None:
+        from app.models.invoice_fields import HeaderFields
+        from app.services.manual_tax import refresh_assignments, totals
+
         draft = await db.scalar(select(Draft).where(Draft.request_id == request_id))
-        if draft is None:
-            raise HTTPException(409, "Extraction has not produced a draft for manual review.")
-    elif req.status != RequestStatus.READY_FOR_REVIEW:
-        raise HTTPException(409, "Request is not ready for manual review.")
+        if not draft:
+            raise HTTPException(409, "No submitted draft is available.")
+        try:
+            items, assignments = await refresh_assignments(db, draft.draft_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        header = await db.scalar(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
+        summary = totals(req, header, items, assignments)
+        if summary["voucher_total"] is None or Decimal(summary["voucher_total"]) < 0:
+            raise HTTPException(422, "Complete item totals and tax amounts before accepting the voucher.")
 
     req.flags = []
     # ── Approve: transition status and write audit event ──────────────────────
@@ -284,10 +296,10 @@ async def reject_request(
         raise HTTPException(403, "Self-rejection is not permitted.")
 
     # ── Step 5: Status check — must be READY_FOR_REVIEW or EXCEPTION ──────────
-    if req.status not in (RequestStatus.READY_FOR_REVIEW, RequestStatus.EXCEPTION):
+    if req.status != RequestStatus.READY_FOR_REVIEW:
         raise HTTPException(
             409,
-            "Request must be in READY_FOR_REVIEW or EXCEPTION status to be rejected.",
+            "The draft must be submitted by Client PIC before finance rejection.",
         )
 
     # ── Reject: persist reason, transition status, write audit event ──────────

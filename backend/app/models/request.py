@@ -13,6 +13,7 @@ from app.models import Base
 class RequestStatus(str, enum.Enum):
     QUEUED = "QUEUED"
     PROCESSING = "PROCESSING"
+    READY_FOR_REFINEMENT = "READY_FOR_REFINEMENT"
     READY_FOR_REVIEW = "READY_FOR_REVIEW"
     EXCEPTION = "EXCEPTION"
     AMIGA_REVIEWED = "AMIGA_REVIEWED"
@@ -32,12 +33,11 @@ class InvoiceRequest(Base):
     request_type: Mapped[str] = mapped_column(String(100), nullable=False)
     channel: Mapped[str] = mapped_column(String(100), nullable=False)
     request_date: Mapped[date] = mapped_column(Date, nullable=False)
-    status: Mapped[RequestStatus] = mapped_column(
-        SAEnum(RequestStatus, name="requeststatus"), nullable=False
-    )
+    status: Mapped[RequestStatus] = mapped_column(SAEnum(RequestStatus, name="requeststatus"), nullable=False)
     flags: Mapped[list] = mapped_column(ARRAY(String), nullable=False, server_default="{}")
     invoice_file_key: Mapped[str] = mapped_column(String(500), nullable=False)
     invoice_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    refinement_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

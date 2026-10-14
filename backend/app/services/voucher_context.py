@@ -3,6 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
+from app.services.manual_tax import TAX_LABELS, effect_of, totals
 from app.services.tax_service import compute_tax_summary
 
 
@@ -56,6 +57,56 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         if line_items and all(item.line_total is not None for item in line_items)
         else None
     )
+    summary = totals(req, h, line_items, tax_map)
+    if summary["calculated_from_items"]:
+        expanded = []
+        for index, (item, row) in enumerate(zip(line_items, items), start=1):
+            expanded.append(row)
+            assignment = tax_map.get(str(item.line_item_id))
+            if assignment and assignment.tax_type.value != "NO_TAX":
+                value = Decimal(str(assignment.tax_amount)) * (-1 if effect_of(assignment) == "DEDUCT" else 1)
+                percentage = number(Decimal(str(assignment.tax_rate)) * 100)
+                rate_label = (
+                    "12% x 11/12 DPP (efektif 11%)" if assignment.rate_profile == "PPN_NON_LUXURY" else f"{percentage}%"
+                )
+                kind = TAX_LABELS.get(assignment.tax_type.value, assignment.tax_type.value)
+                treatment = "potongan" if effect_of(assignment) == "DEDUCT" else "biaya pajak"
+                expanded.append(
+                    dict(
+                        description=f'{kind} {rate_label} ({treatment}) - item {index}: {item.description or ""}',
+                        quantity="1",
+                        unit="pajak",
+                        unit_price=str(value),
+                        line_total=str(value),
+                        tax_type=assignment.tax_type.value,
+                        tax_amount=str(assignment.tax_amount),
+                        date=row["date"],
+                        quantity_display="1",
+                        unit_price_display=number(value),
+                        line_total_display=number(value),
+                    )
+                )
+        for key, description in [("fees", "Biaya tambahan"), ("rounding", "Penyesuaian pembulatan")]:
+            value = Decimal(summary[key])
+            if value:
+                expanded.append(
+                    dict(
+                        description=description,
+                        quantity="1",
+                        unit="",
+                        unit_price=str(value),
+                        line_total=str(value),
+                        date="",
+                        quantity_display="1",
+                        unit_price_display=number(value),
+                        line_total_display=number(value),
+                        tax_type="NO_TAX",
+                        tax_amount="0",
+                    )
+                )
+        items = expanded
+        total_amount = Decimal(summary["voucher_total"]) if summary["voucher_total"] is not None else None
+        items_total = total_amount
     return {
         # Indonesian voucher header. Purpose and item dates stay blank until entered.
         "voucher_number": (h.voucher_number if h else None)
@@ -64,7 +115,7 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         "voucher_purpose": h.voucher_purpose or "" if h else "",
         "voucher_period": (h.voucher_period if h else None)
         or display_date((h.invoice_date if h else None) or req.request_date),
-        "voucher_nominal": f"{currency_label} {number(total_amount)}".strip(),
+        "voucher_nominal": f"{currency_label} {number(total_amount)}".strip() if total_amount is not None else "",
         "voucher_line_total": number(items_total),
         # Keep legacy variables available to previously saved custom templates.
         "vendor_name": h.vendor_name or "" if h else "",
@@ -72,7 +123,7 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         "invoice_date": str(h.invoice_date) if h and h.invoice_date else "",
         "currency": currency,
         "subtotal": str(subtotal),
-        "total_amount": str(h.total_amount) if h and h.total_amount is not None else "",
+        "total_amount": str(total_amount) if total_amount is not None else "",
         "tax_amount": str(h.tax_amount) if h and h.tax_amount is not None else "",
         "fee_amount": str(h.fee_amount) if h and h.fee_amount is not None else "",
         "rounding_adj": str(h.rounding_adj) if h and h.rounding_adj is not None else "",
@@ -80,7 +131,9 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         "tax_summary_table": [
             {"tax_type": row["tax_type"], "subtotal": str(row["subtotal"])} for row in tax["per_type_subtotals"]
         ],
-        "total_tax": str(h.tax_amount if h and h.tax_amount is not None else tax["total_tax"]),
+        "total_tax": str(Decimal(summary["added_tax"]) - Decimal(summary["withheld_tax"]))
+        if summary["calculated_from_items"]
+        else str(h.tax_amount if h and h.tax_amount is not None else tax["total_tax"]),
         "grand_total": str(total_amount),
         "bank_account_number": payment.bank_account_number or "" if payment else "",
         "bank_name": payment.bank_name or "" if payment else "",
