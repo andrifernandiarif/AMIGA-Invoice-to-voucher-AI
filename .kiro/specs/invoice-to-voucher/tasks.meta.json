@@ -378,6 +378,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288131
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802314
       }
     ],
     "16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.": [
@@ -390,6 +395,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288165
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802428
       }
     ],
     "17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names": [
@@ -402,6 +412,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288203
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802518
       }
     ],
     "18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy": [
@@ -414,6 +429,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288230
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802599
       }
     ],
     "19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)": [
@@ -426,6 +446,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288264
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802681
       }
     ],
     "19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`": [
@@ -438,6 +463,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288290
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802820
       }
     ],
     "20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty": [
@@ -450,6 +480,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288322
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802907
       }
     ],
     "21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.": [
@@ -462,6 +497,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288355
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947802991
       }
     ],
     "22.1 Implement `PUT /requests/{id}/fields` FastAPI router (Finance Reviewer + active `ClientAssignment` via `Depends`): accept a Pydantic v2 request body `{ field_path: str, new_value: str }`; load the current value from the appropriate table (`HeaderFields` / `LineItem` / `PaymentDetails`) by `field_path`; if new value differs from current value, atomically update the field value AND insert a `FieldRevision` record within a single SQLAlchemy async transaction; on transaction failure, roll back both writes and return `HTTPException(500, \"The change could not be saved. Please try again.\")`; append a `FIELD_REVISED` `AuditEvent` referencing `revision_id`; skip entirely (no-op) if `new_value == old_value`": [
@@ -474,6 +514,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288611
+      },
+      {
+        "executionId": "37fa864d-c87e-4cf8-9718-43f5586f78b0",
+        "chatSessionId": "sess_57031d69-08ca-4a39-9c88-a1e27b40c1ee",
+        "timestamp": 1791945297693
       }
     ],
     "22.2 Implement `GET /requests/{id}/revisions` FastAPI router (Finance Reviewer, Service Lead, System Admin only): return the complete `FieldRevision` list for the Request ordered by `revised_at` ascending": [
@@ -486,6 +531,16 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288654
+      },
+      {
+        "executionId": "e3d81f8b-53d3-4633-9c9f-212c3c1c527d",
+        "chatSessionId": "sess_09914bd8-9bf8-436f-a72f-cb71d072db09",
+        "timestamp": 1791945834069
+      },
+      {
+        "executionId": "e3d81f8b-53d3-4633-9c9f-212c3c1c527d",
+        "chatSessionId": "sess_09914bd8-9bf8-436f-a72f-cb71d072db09",
+        "timestamp": 1791947581884
       }
     ],
     "23.1 Build the `ReviewWorkspace` component: two-panel layout (PDF viewer panel on the left, editable draft form panel on the right); both panels are simultaneously visible without scrolling between them; PDF viewer uses `react-pdf` to render the invoice file fetched from the backend; form panel renders all `HeaderFields`, `LineItems`, and `PaymentDetails` as individually editable inputs; render the \"AI-generated draft — not approved\" label persistently at the top of the form panel": [
@@ -498,6 +553,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288716
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803673
       }
     ],
     "23.2 For each editable field, display the original AI-extracted value adjacent to the edit control (read-only); call `PUT /requests/{id}/fields` on field blur/save; show a confirmation prompt when the user attempts to navigate away with unsaved changes": [
@@ -510,6 +570,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288762
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803755
       }
     ],
     "23.3 Handle PDF load failure: display an error message in the PDF panel and a direct download link for the original file": [
@@ -522,6 +587,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288796
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803838
       }
     ],
     "23.4 On workspace mount, begin measuring the time from navigation request to the point when both panels are interactive; report this duration to `POST /telemetry/page-load` with `page = REVIEW_WORKSPACE`": [
@@ -534,6 +604,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288837
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803946
       }
     ],
     "24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.": [
@@ -546,6 +621,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288873
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804025
       }
     ],
     "25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, \"Self-approval is not permitted.\")`; if any active EXCEPTION flag exists raise `HTTPException(409, \"Unresolved exceptions must be addressed before this Request can be approved.\")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, \"You do not have authority to approve Requests.\")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts": [
@@ -558,6 +638,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288913
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804107
       }
     ],
     "26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint": [
@@ -570,6 +655,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288955
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804191
       }
     ],
     "27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.": [
@@ -582,6 +672,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288996
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804281
       }
     ],
     "28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED` — reject with error if not; assemble all approved `HeaderFields`, `LineItems`, and `PaymentDetails`; inject the `AUTHORIZATION_DISCLAIMER` from `Pydantic Settings`; render to PDF using WeasyPrint or reportlab; upload PDF bytes to `S3FileStore`; persist a `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, and `disclaimer_hash` (SHA-256 of the disclaimer text via `hashlib.sha256`); write a `VOUCHER_GENERATED` `AuditEvent`; return `200` with `voucher_pdf_id` and a signed download URL; record generation duration in `TelemetryRecord` (`metric_type = PDF_GENERATION_DURATION`); if generation fails, return `HTTPException(500)` and do NOT write any `AuditEvent` or transition status": [
@@ -601,6 +696,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289078
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804436
       }
     ],
     "29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds": [
@@ -613,6 +713,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289117
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804614
       }
     ],
     "29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error": [
@@ -625,6 +730,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289160
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804685
       }
     ],
     "30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type=\"application/pdf\")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded": [
@@ -637,6 +747,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289197
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804764
       }
     ],
     "30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available": [
@@ -649,6 +764,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289239
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804842
       }
     ],
     "31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.": [
@@ -661,6 +781,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289281
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804934
       }
     ],
     "32.1 Implement `GET /requests` FastAPI router with role-based and assignment-based filtering via `Depends(get_current_user)`:": [
@@ -673,6 +798,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289328
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805023
       }
     ],
     "32.2 Implement `POST /requests/{id}/reallocate` FastAPI router (Service Lead only): update `assigned_reviewer`; write a `REALLOCATED` `AuditEvent` with actor `user_id`, previous reviewer `user_id`, new reviewer `user_id`, and UTC timestamp": [
@@ -685,6 +815,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289372
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805106
       }
     ],
     "33.1 Implement the exception detail API — extend `GET /requests/{id}` to include in the Pydantic response: all active flags, per-flag details (`MISSING_EVIDENCE`: list of missing field names; `POSSIBLE_DUPLICATE`: matching request summaries with `request_id`/`status`/`invoice_date`/`total_amount`; calculation discrepancy: flagged field name + computed + extracted values)": [
@@ -697,6 +832,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289419
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805189
       }
     ],
     "33.2 Build the `ExceptionPanel` React component: display all active flags with visual distinction (color/icon) and the flag identifier label; per-flag next-action instructions (supply missing field / compare matching request / correct inconsistent value); prevent approval action while EXCEPTION flags are active (hide/disable approve button)": [
@@ -709,6 +849,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289444
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805292
       }
     ],
     "34.1 Build the `QueueDashboard` component: fetch `GET /requests`, display the filtered list in a table with columns for `request_id`, client name, vendor name, status, and submission timestamp; link each row to the appropriate detail screen (`ReviewWorkspace`, `VoucherPreview`, or read-only detail depending on status); measure and report page load time to `POST /telemetry/page-load` with `page = QUEUE_DASHBOARD`": [
@@ -721,6 +866,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289478
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805374
       }
     ],
     "35. Checkpoint — Browse the queue dashboard as each role; verify correct status filtering and client isolation. Open an EXCEPTION request and confirm all flag types and instructions render. Ask the user if any questions arise.": [
@@ -733,6 +883,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289505
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805465
       }
     ],
     "36.1 Implement `GET /requests/{id}/audit` FastAPI router (Finance Reviewer, Service Lead, System Admin + active `ClientAssignment`): async SQLAlchemy query joining `AuditEvent` and `FieldRevision` for the given `request_id`; merge and sort by `occurred_at` / `revised_at` ascending; return combined timeline within 3 seconds; include for each event: `event_type`, `actor_id`, `payload`, UTC timestamp; include for each revision: `field_path`, `old_value`, `new_value`, `actor_id`, UTC timestamp": [
@@ -745,6 +900,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289538
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805557
       }
     ],
     "37.1 Build the `AuditTimeline` component accessible from the Request detail screen for Finance_Reviewers, Service_Leads, and System_Admins: render each event and revision in chronological order with event type, actor identity, UTC timestamp, and payload details; display field revisions with old/new value side by side; the component must be read-only": [
@@ -757,6 +917,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289569
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805637
       }
     ],
     "38.1 Write an Alembic migration that adds a table-level `RULE` or DDL trigger preventing `DELETE` on `AuditEvent` and `FieldRevision` rows with `occurred_at` / `revised_at` within 7 years of current date; document the cold-storage archival strategy in a `docs/audit-retention.md` file (no code execution required beyond the migration)": [
@@ -769,6 +934,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289597
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805719
       }
     ],
     "39. Checkpoint — Submit a full workflow (upload → review → edit fields → approve → download); view the Audit Timeline and verify every event appears in correct chronological order. Ask the user if any questions arise.": [
@@ -781,6 +951,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289627
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805803
       }
     ],
     "40.1 Implement `POST /telemetry/page-load` FastAPI internal router: accept Pydantic body `{ page: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PAGE_LOAD_DURATION`; if `duration_ms > 2000` (for queue dashboard or review workspace), also persist a breach event with `is_breach = True`": [
@@ -793,6 +968,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289655
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947805889
       }
     ],
     "40.2 Implement `POST /telemetry/pdf-generation` FastAPI internal router (called by Voucher Service): accept Pydantic body `{ job_id: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PDF_GENERATION_DURATION`; if `duration_ms > 3000`, persist a breach event": [
@@ -805,6 +985,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289682
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806031
       }
     ],
     "41.1 Implement `GET /telemetry/metrics` FastAPI router (Service Lead, System Admin only): use SQLAlchemy async queries with `percentile_cont` or in-Python computation to derive p50, p90, p99 durations, total measurement count, breach count, and `breach_rate = (breach_count / total_count * 100)` per `metric_type` from `TelemetryRecord`; cache aggregations and refresh at intervals ≤ 60 seconds (e.g., store last-computed result and `computed_at`; recompute only if `> 60s` old); return aggregated result": [
@@ -817,6 +1002,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289710
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806156
       }
     ],
     "41.2 Implement `GET /telemetry/breaches` FastAPI router (Service Lead, System Admin only): return `TelemetryRecord` rows where `is_breach = True`, ordered by `measured_at` descending": [
@@ -829,6 +1019,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289738
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806283
       }
     ],
     "42.1 Build the `TelemetryDashboard` component (Service Lead and System Admin only): display per-metric-type cards showing p50/p90/p99, total count, breach count, and breach rate; auto-refresh every 60 seconds; fetch from `GET /telemetry/metrics`": [
@@ -841,6 +1036,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289778
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806391
       }
     ],
     "43. Checkpoint — Run several mock operations (fast extraction, slow extraction, fast PDF, slow PDF, fast page load, slow page load); check the telemetry dashboard shows correct p50/p90/p99 and breach records. Ask the user if any questions arise.": [
@@ -853,6 +1053,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289813
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806472
       }
     ],
     "44.1 Add `hypothesis` (with `hypothesis[numpy]` if needed) to `pyproject.toml` dev dependencies (`[project.optional-dependencies]` or `[tool.pytest.ini_options]`); create `backend/tests/pbt/` directory with `__init__.py` and `conftest.py` (async test setup with `pytest-asyncio`); configure Hypothesis settings in `conftest.py`: `settings.register_profile(\"ci\", max_examples=100)`; activate profile in `conftest.py` with `settings.load_profile(\"ci\")`; add `pytest` ini config to discover `tests/pbt/` automatically": [
@@ -865,6 +1070,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289844
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806551
       }
     ],
     "46. Checkpoint — Run `pytest backend/tests/pbt/ -v` and confirm all 17 Hypothesis property tests pass with ≥ 100 examples each. Ask the user if any questions arise.": [
@@ -877,6 +1087,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289872
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806682
       }
     ],
     "49. Final checkpoint — Run the full test suite (`pytest backend/`, `pytest backend/tests/pbt/`, integration tests, performance tests); all required tasks pass. Review any remaining optional tasks with the user and decide whether to include them in the MVP. Ask the user if any questions arise.": [
@@ -889,6 +1104,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289903
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947806822
       }
     ],
     "2. Define and apply the database schema": [
@@ -1019,6 +1239,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288388
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803073
       }
     ],
     "50.2 Create `app/services/tax_service.py`: `compute_tax_amount(line_total: Decimal, tax_type: IndonesianTaxType) -> Decimal` using only `Decimal` multiplication (no `float`); `compute_tax_summary(tax_assignments: list[TaxAssignment], line_items: list[LineItem]) -> dict` returning `{\"per_type\": {tax_type: subtotal}, \"total_tax\": Decimal, \"grand_total\": Decimal}` where `grand_total = subtotal + total_tax`": [
@@ -1031,6 +1256,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288420
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803148
       }
     ],
     "50.3 Implement `PUT /requests/{id}/line-items/{line_item_id}/tax` FastAPI endpoint (Finance Reviewer + active ClientAssignment, Request must be in `READY_FOR_REVIEW` or `EXCEPTION` status): accept `{ tax_type: str }`; validate `tax_type` is a valid `IndonesianTaxType`; compute `tax_amount = compute_tax_amount(Decimal(str(line_item.line_total)), tax_type)`; upsert the `TaxAssignment` row; write a `FIELD_REVISED` AuditEvent recording old and new tax type and computed amount; return `{ line_item_id, tax_type, tax_rate, tax_amount }` — reject with `409` if Request is `AMIGA_REVIEWED` or later (locked)": [
@@ -1043,6 +1273,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288450
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803247
       }
     ],
     "50.4 Implement `GET /requests/{id}/tax-summary` FastAPI endpoint (Finance Reviewer + active ClientAssignment): return `{ line_items: [{..., tax_type, tax_rate, tax_amount}], per_type_subtotals: {type: subtotal}, total_tax, grand_total }` computed via `tax_service.compute_tax_summary`; if Request is `AMIGA_REVIEWED` or later, mark as `locked: true` in the response": [
@@ -1055,6 +1290,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288491
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803330
       }
     ],
     "51.1 For each extracted `LineItem` in the review workspace, render a dropdown selector with options: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), No Tax; display the computed tax amount next to each selector, updating on selection via `PUT /requests/{id}/line-items/{lid}/tax`": [
@@ -1067,6 +1307,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288520
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803412
       }
     ],
     "51.2 Render a live tax summary section below the line items table: per-type subtotals and grand total fetched from `GET /requests/{id}/tax-summary`; disable all selectors if Request is locked (`AMIGA_REVIEWED` or later)": [
@@ -1079,6 +1324,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288546
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803486
       }
     ],
     "28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; load the active `VoucherTemplate` via `template_service.load_active_template(db)`; build Jinja2 context from approved `HeaderFields`, `LineItems` (with their `TaxAssignment` rows), `PaymentDetails`, `tax_service.compute_tax_summary()` result, and `settings.AUTHORIZATION_DISCLAIMER`; render HTML using `jinja2.Environment(loader=BaseLoader()).from_string(template.template_content).render(context)`; convert to PDF using `weasyprint.HTML(string=rendered_html).write_pdf()`; compute `disclaimer_hash = sha256(disclaimer_text.encode()).hexdigest()` and `template_hash = sha256(rendered_html.encode()).hexdigest()`; upload PDF bytes to S3 at `vouchers/{request_id}/{voucher_pdf_id}.pdf`; persist `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, `template_version`, `disclaimer_hash`, `template_hash`; write `VOUCHER_GENERATED` AuditEvent; record generation duration in `TelemetryRecord`; SLA is **5 seconds** (updated from 3s); if generation fails return `HTTPException(500)` and do NOT write AuditEvent or transition status": [
@@ -1091,6 +1341,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903289037
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947804357
       }
     ],
     "12. Enqueue extraction job": [
@@ -1105,6 +1360,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288579
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791947803591
       }
     ],
     "13. Checkpoint — Confirm end-to-end: upload a PDF via `POST /requests`, see `QUEUED` request in DB, verify an `ExtractionJob` row appears in the `extraction_jobs` PostgreSQL table with `status=PENDING`. Ask the user if any questions arise.": [
@@ -1141,6 +1401,68 @@
         "executionId": "c1895ef4-0763-4dbb-bc71-700f64b66483",
         "chatSessionId": "sess_a31cdded-14d7-4442-b10b-ac2fe8988200",
         "timestamp": 1791939753701
+      }
+    ],
+    "20. Wire validators into the extraction pipeline": [
+      {
+        "executionId": "866059b9-fa74-4b2d-a6d4-184081ae409f",
+        "chatSessionId": "sess_e37e521a-eb48-40eb-b14d-63195c2822d4",
+        "timestamp": 1791943876859
+      }
+    ],
+    "22. Implement draft field update endpoint": [
+      {
+        "executionId": "e3d81f8b-53d3-4633-9c9f-212c3c1c527d",
+        "chatSessionId": "sess_09914bd8-9bf8-436f-a72f-cb71d072db09",
+        "timestamp": 1791947582005
+      }
+    ],
+    "22.3 Write pytest tests for field update: value unchanged → no revision written, value changed → revision persisted, persistence failure → field unchanged + error, unauthorized role → 403": [
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791948258128
+      },
+      {
+        "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
+        "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
+        "timestamp": 1791948752969
+      }
+    ],
+    "22.4 Write Hypothesis property test for **Property 11** (field revisions complete, ordered, authorized roles only): for any field modification where `new_value ≠ old_value`, a `FieldRevision` with correct `field_path`, old value, new value, actor `user_id`, and UTC timestamp SHALL be recorded; revisions returned in non-decreasing `revised_at` order; endpoint returns 403 for any role other than Finance_Reviewer, Service_Lead, or System_Admin": [
+      {
+        "executionId": "a945e3f0-1717-4a1f-9fe7-391aaca4548a",
+        "chatSessionId": "sess_b1f827e5-928d-47bc-b5e5-fc743db23a03",
+        "timestamp": 1791949506054
+      }
+    ],
+    "23. Implement review workspace React UI": [
+      {
+        "executionId": "54b088e9-5795-4641-84a3-0a22dc6d6ee3",
+        "chatSessionId": "sess_9aa96a0d-2bb5-445f-8ee4-8329cd31f5a8",
+        "timestamp": 1791950608947
+      }
+    ],
+    "23.5 Write unit tests for `ReviewWorkspace`: renders AI label, unsaved-changes prompt fires on navigation, PDF load failure shows error + download link, field edit calls the update API": [
+      {
+        "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
+        "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
+        "timestamp": 1791952156611
+      },
+      {
+        "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
+        "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
+        "timestamp": 1791952885639
+      },
+      {
+        "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
+        "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
+        "timestamp": 1791952896297
+      },
+      {
+        "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
+        "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
+        "timestamp": 1791953590419
       }
     ]
   }
