@@ -181,53 +181,19 @@ async def _run_validation_and_transition(
     db: AsyncSession, request_id: uuid.UUID, draft: Draft
 ) -> None:
     """Run all validators and set the request status accordingly."""
-    from app.validation.completeness import CompletenessValidator
-    from app.validation.calculation import CalculationValidator
-    from app.validation.duplicate import DuplicateDetector
+    from app.validation.engine import run_validation
 
-    flags: list[str] = []
+    # Run all validators via the validation engine
+    flags = await run_validation(request_id, draft, db)
 
-    # Load related data
-    header = await db.scalar(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
-    line_items_result = await db.execute(select(LineItem).where(LineItem.draft_id == draft.draft_id))
-    line_items = list(line_items_result.scalars().all())
-    payment = await db.scalar(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
-
-    # Completeness check
-    missing = CompletenessValidator.validate(payment, line_items)
-    if missing:
-        flags.append("MISSING_EVIDENCE")
+    # Log FLAG_APPLIED events for each flag
+    for flag in flags:
         db.add(AuditEvent(
             event_id=uuid.uuid4(), request_id=request_id,
             event_type=AuditEventType.FLAG_APPLIED, actor_id=None,
-            payload={"flag": "MISSING_EVIDENCE", "missing_fields": missing},
+            payload={"flag": flag},
             occurred_at=datetime.now(timezone.utc),
         ))
-
-    # Calculation check
-    from decimal import Decimal
-    tolerance = Decimal(settings.CALCULATION_TOLERANCE)
-    calc_flags = CalculationValidator.validate(header, line_items, tolerance)
-    if calc_flags:
-        flags.append("CALC_DISCREPANCY")
-        db.add(AuditEvent(
-            event_id=uuid.uuid4(), request_id=request_id,
-            event_type=AuditEventType.FLAG_APPLIED, actor_id=None,
-            payload={"flag": "CALC_DISCREPANCY", "discrepancies": calc_flags},
-            occurred_at=datetime.now(timezone.utc),
-        ))
-
-    # Duplicate check
-    if header and header.vendor_name and header.invoice_number:
-        matches = await DuplicateDetector.detect(request_id, header.vendor_name, header.invoice_number, db)
-        if matches:
-            flags.append("POSSIBLE_DUPLICATE")
-            db.add(AuditEvent(
-                event_id=uuid.uuid4(), request_id=request_id,
-                event_type=AuditEventType.FLAG_APPLIED, actor_id=None,
-                payload={"flag": "POSSIBLE_DUPLICATE", "matches": [str(m) for m in matches]},
-                occurred_at=datetime.now(timezone.utc),
-            ))
 
     # Apply flags to Request and set status
     new_status = RequestStatus.EXCEPTION if flags else RequestStatus.READY_FOR_REVIEW
