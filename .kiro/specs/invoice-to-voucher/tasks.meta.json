@@ -706,6 +706,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804436
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958023297
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958466553
       }
     ],
     "29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds": [
@@ -1351,6 +1361,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804357
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958018626
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958461929
       }
     ],
     "12. Enqueue extraction job": [
@@ -1468,6 +1488,20 @@
         "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
         "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
         "timestamp": 1791953590419
+      }
+    ],
+    "28. Implement Voucher Service — generation": [
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958466678
+      }
+    ],
+    "28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output": [
+      {
+        "executionId": "99700951-4b73-4dce-8ece-e4767d29e7a7",
+        "chatSessionId": "sess_38765e28-3442-4cb2-8e2a-1143e5dc130a",
+        "timestamp": 1791958507647
       }
     ]
   }
