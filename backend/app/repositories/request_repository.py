@@ -89,6 +89,29 @@ class RequestRepository:
             raise ValueError(f"Request {request_id} not found.")
         return req
 
+    async def update_status_with_reason(
+        self,
+        db: AsyncSession,
+        request_id: uuid.UUID,
+        new_status: RequestStatus,
+        rejection_reason: str,
+    ) -> InvoiceRequest:
+        """Transition the request to a new status and persist a rejection reason."""
+        await db.execute(
+            update(InvoiceRequest)
+            .where(InvoiceRequest.request_id == request_id)
+            .values(
+                status=new_status,
+                rejection_reason=rejection_reason,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        req = await self.get_by_id(db, request_id)
+        if req is None:
+            raise ValueError(f"Request {request_id} not found.")
+        return req
+
     async def apply_flag(
         self, db: AsyncSession, request_id: uuid.UUID, flag: str
     ) -> None:
@@ -150,6 +173,7 @@ class RequestRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+
     async def update_field_value(
         self,
         db: AsyncSession,
@@ -183,7 +207,7 @@ class RequestRepository:
                 select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
             )
             current = result.scalar_one_or_none()
-            if current and getattr(current, field_name) == new_value:
+            if current and getattr(current, field_name, None) == new_value:
                 return False
             update_stmt = (
                 update(HeaderFields)
@@ -197,15 +221,16 @@ class RequestRepository:
             index = int(match.group(1))
             field_name = match.group(2)
 
-            stmt = select(LineItem).where(
+            stmt2 = select(LineItem).where(
                 LineItem.draft_id == draft.draft_id,
                 LineItem.sequence_number == index,
             )
-            result = await db.execute(stmt)
+            result = await db.execute(stmt2)
             line_item = result.scalar_one_or_none()
             if line_item is None:
-                raise ValueError(f"LineItem at index {index} not found in draft {draft.draft_id}")
-
+                raise ValueError(
+                    f"LineItem at index {index} not found in draft {draft.draft_id}"
+                )
             update_stmt = (
                 update(LineItem)
                 .where(LineItem.line_item_id == line_item.line_item_id)
@@ -217,8 +242,10 @@ class RequestRepository:
             )
             payment = result.scalar_one_or_none()
             if payment is None:
-                raise ValueError(f"No payment details found for draft {draft.draft_id}")
-            if getattr(payment, field_name) == new_value:
+                raise ValueError(
+                    f"No payment details found for draft {draft.draft_id}"
+                )
+            if getattr(payment, field_name, None) == new_value:
                 return False
             update_stmt = (
                 update(PaymentDetails)

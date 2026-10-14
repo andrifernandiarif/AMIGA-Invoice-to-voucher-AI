@@ -11,6 +11,7 @@ from app.routes.clients import router as clients_router
 from app.routes.requests import router as requests_router
 from app.routes.test_extract import router as test_router
 from app.routes.users import router as users_router
+from app.routes.voucher import router as voucher_router
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ app.include_router(users_router)
 app.include_router(requests_router)
 app.include_router(test_router)
 app.include_router(admin_router)
+app.include_router(voucher_router)
 
 
 @app.get("/health")

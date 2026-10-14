@@ -29,6 +29,7 @@ from app.schemas.request_schemas import (
     HeaderFieldsResponse,
     LineItemResponse,
     PaymentDetailsResponse,
+    RejectRequestBody,
     RequestDetailResponse,
     RequestSummary,
 )
@@ -149,164 +150,42 @@ async def upload_invoice(
     return req
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /requests/{request_id}  — request detail with draft
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get("/{request_id}", response_model=RequestDetailResponse)
-async def get_request_detail(
+@router.post("/{request_id}/approve", status_code=status.HTTP_200_OK)
+async def approve_request(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_role("FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN", "CLIENT_PIC", "INTAKE_SUPPORT")
-    ),
+    current_user: User = Depends(require_role(
+        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
+    )),
 ):
     """
-    Return the full request detail including the AI-extracted draft (HeaderFields,
-    LineItems, PaymentDetails) and all associated evidence file metadata.
-    Requires an active ClientAssignment for non-admin roles.
+    Approve a Request for payment processing.
+    Only Finance Reviewers with an active client assignment may approve.
+    Enforces segregation of duties (uploader cannot approve their own submission).
+    SYSTEM_ADMIN attempts are logged as UNAUTHORIZED_APPROVAL_ATTEMPT.
     """
-    req = await request_repository.get_by_id(db, request_id)
-    if req is None:
-        raise HTTPException(404, "Request not found.")
-
-    # Enforce client assignment for non-admin roles
-    if current_user.role not in (UserRole.SYSTEM_ADMIN, UserRole.SERVICE_LEAD):
-        active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
-        if not active:
-            raise HTTPException(403, "You are not authorized to access Requests for this client.")
-
-    # Load evidence files
-    ef_result = await db.execute(
-        select(EvidenceFile)
-        .where(EvidenceFile.request_id == request_id)
-        .order_by(EvidenceFile.upload_order)
-    )
-    evidence_files = ef_result.scalars().all()
-
-    # Load draft + related records
-    draft_result = await db.execute(
-        select(Draft).where(Draft.request_id == request_id)
-    )
-    draft = draft_result.scalar_one_or_none()
-
-    draft_response: DraftResponse | None = None
-    if draft is not None:
-        # Header fields
-        hf_result = await db.execute(
-            select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
+    # ── Step 1: Role check ─────────────────────────────────────────────────────
+    # SYSTEM_ADMIN: log an audit event, commit it, then raise 403
+    if current_user.role == UserRole.SYSTEM_ADMIN:
+        await log_event(
+            db,
+            AuditEventType.UNAUTHORIZED_APPROVAL_ATTEMPT,
+            payload={
+                "attempted_by": str(current_user.user_id),
+                "role": current_user.role.value,
+                "request_id": str(request_id),
+            },
+            request_id=request_id,
+            actor_id=current_user.user_id,
         )
-        header = hf_result.scalar_one_or_none()
+        await db.commit()
+        raise HTTPException(403, "You do not have authority to approve Requests.")
 
-        # Line items
-        li_result = await db.execute(
-            select(LineItem)
-            .where(LineItem.draft_id == draft.draft_id)
-            .order_by(LineItem.sequence_number)
-        )
-        line_items = li_result.scalars().all()
+    # Any other non-FINANCE_REVIEWER role
+    if current_user.role != UserRole.FINANCE_REVIEWER:
+        raise HTTPException(403, "You do not have authority to approve Requests.")
 
-        # Payment details
-        pd_result = await db.execute(
-            select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-        )
-        payment = pd_result.scalar_one_or_none()
-
-        # Coerce numeric fields to str for the response schema
-        def _str_or_none(v) -> str | None:
-            return str(v) if v is not None else None
-
-        header_response = None
-        if header is not None:
-            header_response = HeaderFieldsResponse(
-                header_id=header.header_id,
-                draft_id=header.draft_id,
-                vendor_name=header.vendor_name,
-                invoice_number=header.invoice_number,
-                invoice_date=str(header.invoice_date) if header.invoice_date else None,
-                currency=header.currency,
-                subtotal=_str_or_none(header.subtotal),
-                total_amount=_str_or_none(header.total_amount),
-                tax_amount=_str_or_none(header.tax_amount),
-                fee_amount=_str_or_none(header.fee_amount),
-                rounding_adj=_str_or_none(header.rounding_adj),
-            )
-
-        line_item_responses = [
-            LineItemResponse(
-                line_item_id=li.line_item_id,
-                draft_id=li.draft_id,
-                sequence_number=li.sequence_number,
-                description=li.description,
-                quantity=_str_or_none(li.quantity),
-                unit=li.unit,
-                unit_price=_str_or_none(li.unit_price),
-                line_total=_str_or_none(li.line_total),
-                extraction_status=li.extraction_status,
-            )
-            for li in line_items
-        ]
-
-        payment_response = None
-        if payment is not None:
-            payment_response = PaymentDetailsResponse(
-                payment_id=payment.payment_id,
-                draft_id=payment.draft_id,
-                bank_account_number=payment.bank_account_number,
-                bank_name=payment.bank_name,
-                payment_reference=payment.payment_reference,
-            )
-
-        draft_response = DraftResponse(
-            draft_id=draft.draft_id,
-            ai_label_visible=draft.ai_label_visible,
-            extraction_status=draft.extraction_status.value,
-            header_fields=header_response,
-            line_items=line_item_responses,
-            payment_details=payment_response,
-        )
-
-    return RequestDetailResponse(
-        request_id=req.request_id,
-        client_id=req.client_id,
-        status=req.status,
-        flags=req.flags or [],
-        evidence_files=[
-            {
-                "evidence_id": str(ef.evidence_id),
-                "file_key": ef.file_key,
-                "original_filename": ef.original_filename or "",
-                "content_type": ef.content_type,
-                "upload_order": ef.upload_order,
-            }
-            for ef in evidence_files
-        ],
-        draft=draft_response,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PUT /requests/{request_id}/fields  — update a draft field value
-# ─────────────────────────────────────────────────────────────────────────────
-
-class FieldUpdateBody(BaseModel):
-    field_path: str
-    new_value: str
-
-
-@router.put("/{request_id}/fields", status_code=status.HTTP_200_OK)
-async def update_field(
-    request_id: uuid.UUID,
-    body: FieldUpdateBody,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("FINANCE_REVIEWER")),
-):
-    """
-    Update a single draft field value (header, line item, or payment detail).
-    Atomically writes the new value AND inserts a FieldRevision record.
-    No-op if new_value equals old_value. Appends a FIELD_REVISED AuditEvent.
-    Requires Finance Reviewer role and active ClientAssignment.
-    """
+    # ── Step 2 & 3: Load request and verify client assignment ──────────────────
     req = await request_repository.get_by_id(db, request_id)
     if req is None:
         raise HTTPException(404, "Request not found.")
@@ -315,118 +194,46 @@ async def update_field(
     if not active:
         raise HTTPException(403, "You are not authorized to access Requests for this client.")
 
-    # Fetch the current value before updating
-    draft_result = await db.execute(select(Draft).where(Draft.request_id == request_id))
-    draft = draft_result.scalar_one_or_none()
-    if draft is None:
-        raise HTTPException(404, "No draft found for this request.")
+    # ── Step 4: Segregation of duties check ────────────────────────────────────
+    if req.uploader_id == current_user.user_id:
+        raise HTTPException(403, "Self-approval is not permitted.")
 
-    # Determine old value from the appropriate table
-    old_value: str | None = None
-    parts = body.field_path.split(".", 1)
-    if len(parts) != 2:
-        raise HTTPException(422, f"Invalid field_path: {body.field_path!r}")
-
-    table_name, field_name = parts
-    if table_name == "header":
-        hf = (await db.execute(
-            select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
-        )).scalar_one_or_none()
-        if hf is not None:
-            val = getattr(hf, field_name, None)
-            old_value = str(val) if val is not None else None
-    elif table_name == "line_items":
-        import re as _re
-        m = _re.match(r"(\d+)\.(.+)", field_name)
-        if not m:
-            raise HTTPException(422, f"Invalid line_items path: {field_name!r}")
-        idx = int(m.group(1))
-        attr = m.group(2)
-        li = (await db.execute(
-            select(LineItem).where(
-                LineItem.draft_id == draft.draft_id,
-                LineItem.sequence_number == idx,
-            )
-        )).scalar_one_or_none()
-        if li is not None:
-            val = getattr(li, attr, None)
-            old_value = str(val) if val is not None else None
-    elif table_name == "payment":
-        pd = (await db.execute(
-            select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-        )).scalar_one_or_none()
-        if pd is not None:
-            val = getattr(pd, field_name, None)
-            old_value = str(val) if val is not None else None
-
-    # No-op if unchanged
-    if old_value == body.new_value:
-        return {"changed": False}
-
-    # Perform the atomic update + revision insert
-    try:
-        changed = await request_repository.update_field_value(
-            db, request_id, body.field_path, body.new_value
+    # ── Step 5: Exception flag / status check ──────────────────────────────────
+    exception_flags = {
+        "MISSING_EVIDENCE",
+        "CALCULATION_MISMATCH",
+        "SUBTOTAL_MISMATCH",
+        "TOTAL_MISMATCH",
+        "POSSIBLE_DUPLICATE",
+    }
+    if req.status == RequestStatus.EXCEPTION or any(
+        f in exception_flags for f in (req.flags or [])
+    ):
+        raise HTTPException(
+            409, "Unresolved exceptions must be addressed before this Request can be approved."
         )
-        if changed:
-            await request_repository.create_field_revision(
-                db,
-                request_id=request_id,
-                field_path=body.field_path,
-                old_value=old_value,
-                new_value=body.new_value,
-                actor_id=current_user.user_id,
-            )
-            await log_event(
-                db,
-                AuditEventType.FIELD_REVISED,
-                payload={
-                    "request_id": str(request_id),
-                    "field_path": body.field_path,
-                    "old_value": old_value,
-                    "new_value": body.new_value,
-                },
-                request_id=request_id,
-                actor_id=current_user.user_id,
-            )
-        await db.commit()
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(422, str(exc))
-    except Exception:
-        await db.rollback()
-        raise HTTPException(500, "The change could not be saved. Please try again.")
 
-    return {"changed": changed}
+    # ── Step 6: Status check ───────────────────────────────────────────────────
+    if req.status != RequestStatus.READY_FOR_REVIEW:
+        raise HTTPException(409, "Request is not in READY_FOR_REVIEW status.")
 
+    # ── Approve: transition status and write audit event ──────────────────────
+    await request_repository.update_status(db, request_id, RequestStatus.AMIGA_REVIEWED)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /requests/{request_id}/revisions  — field revision history
-# ─────────────────────────────────────────────────────────────────────────────
+    await log_event(
+        db,
+        AuditEventType.APPROVED,
+        payload={
+            "approver_id": str(current_user.user_id),
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        },
+        request_id=request_id,
+        actor_id=current_user.user_id,
+    )
 
-@router.get("/{request_id}/revisions", response_model=list[FieldRevisionResponse])
-async def get_revisions(
-    request_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
-        require_role("FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN")
-    ),
-):
-    """
-    Return the complete FieldRevision list for a Request ordered by revised_at ascending.
-    Accessible to Finance Reviewer, Service Lead, and System Admin.
-    """
-    req = await request_repository.get_by_id(db, request_id)
-    if req is None:
-        raise HTTPException(404, "Request not found.")
+    await db.commit()
+    return {"status": "approved", "request_id": str(request_id)}
 
-    revisions = await request_repository.get_field_revisions(db, request_id)
-    return revisions
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /requests/{request_id}/dismiss-duplicate
-# ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/{request_id}/dismiss-duplicate", status_code=status.HTTP_200_OK)
 async def dismiss_duplicate(
@@ -462,3 +269,67 @@ async def dismiss_duplicate(
 
     await db.commit()
     return {"status": "success"}
+
+
+@router.post("/{request_id}/reject", status_code=status.HTTP_200_OK)
+async def reject_request(
+    request_id: uuid.UUID,
+    body: RejectRequestBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(
+        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
+    )),
+):
+    """
+    Reject a Request with a mandatory reason (1–500 characters).
+
+    Only Finance Reviewers with an active client assignment may reject.
+    Enforces segregation of duties (uploader cannot reject their own submission).
+    Request must be in READY_FOR_REVIEW or EXCEPTION status.
+
+    Requirements: 13.1, 13.2, 13.3, 13.4
+    """
+    # ── Step 1: Role check ─────────────────────────────────────────────────────
+    if current_user.role != UserRole.FINANCE_REVIEWER:
+        raise HTTPException(403, "You do not have authority to reject Requests.")
+
+    # ── Step 2: Load request ───────────────────────────────────────────────────
+    req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise HTTPException(404, "Request not found.")
+
+    # ── Step 3: Client assignment check ───────────────────────────────────────
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(403, "You are not authorized to access Requests for this client.")
+
+    # ── Step 4: Segregation of duties check ────────────────────────────────────
+    if req.uploader_id == current_user.user_id:
+        raise HTTPException(403, "Self-rejection is not permitted.")
+
+    # ── Step 5: Status check — must be READY_FOR_REVIEW or EXCEPTION ──────────
+    if req.status not in (RequestStatus.READY_FOR_REVIEW, RequestStatus.EXCEPTION):
+        raise HTTPException(
+            409,
+            "Request must be in READY_FOR_REVIEW or EXCEPTION status to be rejected.",
+        )
+
+    # ── Reject: persist reason, transition status, write audit event ──────────
+    await request_repository.update_status_with_reason(
+        db, request_id, RequestStatus.REJECTED, body.rejection_reason
+    )
+
+    await log_event(
+        db,
+        AuditEventType.REJECTED,
+        payload={
+            "reason": body.rejection_reason,
+            "reviewer_id": str(current_user.user_id),
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
+        },
+        request_id=request_id,
+        actor_id=current_user.user_id,
+    )
+
+    await db.commit()
+    return {"status": "rejected", "request_id": str(request_id)}

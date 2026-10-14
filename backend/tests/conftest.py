@@ -1,4 +1,4 @@
-"""
+﻿"""
 Shared test configuration for Phase 5 (Validation Engine) unit tests.
 
 The production models use PostgreSQL-specific column types (ARRAY, JSONB).
@@ -27,6 +27,6 @@ _original_payload_type = _audit_module.AuditEvent.__table__.c["payload"].type
 _req_module.InvoiceRequest.__table__.c["flags"].type = JSON()
 _audit_module.AuditEvent.__table__.c["payload"].type = JSON()
 
-# SQLite does not support server_default of "{}" for JSON � remove it
+# SQLite does not support server_default of "{}" for JSON — remove it
 _req_module.InvoiceRequest.__table__.c["flags"].server_default = None
 _audit_module.AuditEvent.__table__.c["payload"].server_default = None

@@ -38,5 +38,6 @@ class InvoiceRequest(Base):
     flags: Mapped[list] = mapped_column(ARRAY(String), nullable=False, server_default="{}")
     invoice_file_key: Mapped[str] = mapped_column(String(500), nullable=False)
     invoice_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

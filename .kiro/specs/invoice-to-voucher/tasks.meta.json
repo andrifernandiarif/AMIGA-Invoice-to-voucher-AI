@@ -658,6 +658,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804107
+      },
+      {
+        "executionId": "fba84710-2517-4dbc-be91-188df23d7fef",
+        "chatSessionId": "sess_ae5eaa94-f369-4476-9e50-875c4ef8118c",
+        "timestamp": 1791961863121
+      },
+      {
+        "executionId": "fba84710-2517-4dbc-be91-188df23d7fef",
+        "chatSessionId": "sess_ae5eaa94-f369-4476-9e50-875c4ef8118c",
+        "timestamp": 1791962491148
       }
     ],
     "26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint": [
@@ -675,6 +685,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804191
+      },
+      {
+        "executionId": "494de249-fd9e-49c1-aff6-775fb90fe963",
+        "chatSessionId": "sess_ef258838-42ae-4d72-9527-b69876e1a0ce",
+        "timestamp": 1791963005211
+      },
+      {
+        "executionId": "494de249-fd9e-49c1-aff6-775fb90fe963",
+        "chatSessionId": "sess_ef258838-42ae-4d72-9527-b69876e1a0ce",
+        "timestamp": 1791963698732
       }
     ],
     "27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.": [
@@ -692,6 +712,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804281
+      },
+      {
+        "executionId": "f1c3f4d4-0e2c-460a-93c7-c79b0a8aed2f",
+        "chatSessionId": "sess_7d2a433b-ba39-473f-86fe-82722f5c03d5",
+        "timestamp": 1791963791387
+      },
+      {
+        "executionId": "f1c3f4d4-0e2c-460a-93c7-c79b0a8aed2f",
+        "chatSessionId": "sess_7d2a433b-ba39-473f-86fe-82722f5c03d5",
+        "timestamp": 1791965355962
       }
     ],
     "28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED` — reject with error if not; assemble all approved `HeaderFields`, `LineItems`, and `PaymentDetails`; inject the `AUTHORIZATION_DISCLAIMER` from `Pydantic Settings`; render to PDF using WeasyPrint or reportlab; upload PDF bytes to `S3FileStore`; persist a `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, and `disclaimer_hash` (SHA-256 of the disclaimer text via `hashlib.sha256`); write a `VOUCHER_GENERATED` `AuditEvent`; return `200` with `voucher_pdf_id` and a signed download URL; record generation duration in `TelemetryRecord` (`metric_type = PDF_GENERATION_DURATION`); if generation fails, return `HTTPException(500)` and do NOT write any `AuditEvent` or transition status": [
@@ -716,6 +746,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804436
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958023297
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958466553
       }
     ],
     "29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds": [
@@ -1361,6 +1401,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804357
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958018626
+      },
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958461929
       }
     ],
     "12. Enqueue extraction job": [
@@ -1478,6 +1528,41 @@
         "executionId": "1e282b16-2d39-4a48-a5a9-0ae779031416",
         "chatSessionId": "sess_b5690c74-3188-4e00-a74e-a9084579b25a",
         "timestamp": 1791953590419
+      }
+    ],
+    "28. Implement Voucher Service — generation": [
+      {
+        "executionId": "fef92800-ba99-40ee-86c8-5e97057e3f8e",
+        "chatSessionId": "sess_fe180b06-9786-436b-b5f8-a4312cc1795e",
+        "timestamp": 1791958466678
+      }
+    ],
+    "28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output": [
+      {
+        "executionId": "99700951-4b73-4dce-8ece-e4767d29e7a7",
+        "chatSessionId": "sess_38765e28-3442-4cb2-8e2a-1143e5dc130a",
+        "timestamp": 1791958507647
+      }
+    ],
+    "25. Implement Finance Reviewer approval": [
+      {
+        "executionId": "fba84710-2517-4dbc-be91-188df23d7fef",
+        "chatSessionId": "sess_ae5eaa94-f369-4476-9e50-875c4ef8118c",
+        "timestamp": 1791962491300
+      }
+    ],
+    "25.2 Write pytest tests for approval: self-approval rejected, wrong role rejected, `EXCEPTION` status blocked, valid approval transitions to `AMIGA_REVIEWED`, `SYSTEM_ADMIN` attempt logged as `UNAUTHORIZED_APPROVAL_ATTEMPT`": [
+      {
+        "executionId": "68bf7441-633d-4d1a-a358-82947571cfcd",
+        "chatSessionId": "sess_c9768cb8-ba6d-4729-a5fa-2d115a0a2a75",
+        "timestamp": 1791962546472
+      }
+    ],
+    "26. Implement Finance Reviewer rejection": [
+      {
+        "executionId": "494de249-fd9e-49c1-aff6-775fb90fe963",
+        "chatSessionId": "sess_ef258838-42ae-4d72-9527-b69876e1a0ce",
+        "timestamp": 1791963699012
       }
     ]
   }
