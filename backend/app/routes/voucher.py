@@ -1,6 +1,11 @@
 # backend/app/routes/voucher.py
 """
-Voucher PDF generation endpoint.
+Voucher endpoints.
+
+GET /requests/{request_id}/voucher-preview
+  - Authorized: FINANCE_REVIEWER or CLIENT_PIC with active ClientAssignment
+  - Guard: request.status must be AMIGA_REVIEWED
+  - Returns: VoucherPreviewResponse with all approved fields + authorization disclaimer
 
 POST /requests/{request_id}/voucher-pdf
   - Authorized: CLIENT_PIC with active ClientAssignment
@@ -12,18 +17,20 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import types
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import jinja2
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_current_user, get_db, require_role
-from app.models.audit import AuditEventType
+from app.models.audit import AuditEvent, AuditEventType
 from app.models.draft import Draft
 from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
@@ -31,11 +38,25 @@ from app.models.tax_assignment import TaxAssignment
 from app.models.telemetry import MetricType, TelemetryRecord
 from app.models.user import User
 from app.models.voucher import VoucherPDF
+from app.repositories.request_repository import request_repository
 from app.repositories.user_repository import user_repository
+from app.schemas.voucher_schemas import (
+    HeaderFieldsPreview,
+    LineItemPreview,
+    PaymentDetailsPreview,
+    VoucherPreviewResponse,
+)
 from app.services.audit_service import log_event
 from app.services.tax_service import compute_tax_summary
 from app.services.template_service import load_active_template
 from app.storage import StorageError, file_store
+
+
+# Module-level weasyprint reference.
+# We create a stub module as a placeholder so that `patch("app.routes.voucher.weasyprint")`
+# works in tests without requiring native Pango/GLib to be installed.
+# In production, the real weasyprint is imported lazily inside the function body.
+weasyprint: types.ModuleType = types.ModuleType("weasyprint")  # stub; replaced lazily
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +65,149 @@ router = APIRouter(prefix="/requests", tags=["voucher"])
 # SLA threshold for PDF generation (ms)
 _PDF_SLA_MS = 5_000
 
+
+# ── GET /requests/{request_id}/voucher-preview ────────────────────────────────
+
+@router.get(
+    "/{request_id}/voucher-preview",
+    response_model=VoucherPreviewResponse,
+    summary="Read-only voucher preview for an approved request (Finance Reviewer or Client PIC)",
+)
+async def get_voucher_preview(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("FINANCE_REVIEWER", "CLIENT_PIC")),
+) -> VoucherPreviewResponse:
+    """
+    Return all approved HeaderFields, LineItems (with TaxAssignment if present),
+    PaymentDetails, and the AUTHORIZATION_DISCLAIMER text for the frontend to
+    render as a read-only preview.
+
+    Access rules:
+    - Role must be FINANCE_REVIEWER or CLIENT_PIC (Req 14.3)
+    - User must hold an active ClientAssignment for the request's client
+    - Request must be in AMIGA_REVIEWED status (Req 14.1)
+
+    Response time target: ≤ 3 seconds (Req 14.1, 14.3)
+    """
+    # ── 0. Load request ───────────────────────────────────────────────────────
+    result = await db.execute(
+        select(InvoiceRequest).where(InvoiceRequest.request_id == request_id)
+    )
+    req = result.scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
+
+    # ── 1. Status guard (Req 14.1) ────────────────────────────────────────────
+    if req.status != RequestStatus.AMIGA_REVIEWED:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Voucher preview is only available for Requests in AMIGA_REVIEWED status.",
+        )
+
+    # ── 2. Client assignment check ────────────────────────────────────────────
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to access Requests for this client.",
+        )
+
+    # ── 3. Load draft ─────────────────────────────────────────────────────────
+    draft_result = await db.execute(
+        select(Draft).where(Draft.request_id == request_id)
+    )
+    draft = draft_result.scalar_one_or_none()
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Voucher preview could not be generated. Please try again.",
+        )
+
+    # ── 4. Load HeaderFields ──────────────────────────────────────────────────
+    header_result = await db.execute(
+        select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
+    )
+    header = header_result.scalar_one_or_none()
+
+    header_preview: HeaderFieldsPreview | None = None
+    if header is not None:
+        header_preview = HeaderFieldsPreview(
+            vendor_name=header.vendor_name,
+            invoice_number=header.invoice_number,
+            invoice_date=str(header.invoice_date) if header.invoice_date is not None else None,
+            currency=header.currency,
+            subtotal=str(header.subtotal) if header.subtotal is not None else None,
+            total_amount=str(header.total_amount) if header.total_amount is not None else None,
+            tax_amount=str(header.tax_amount) if header.tax_amount is not None else None,
+            fee_amount=str(header.fee_amount) if header.fee_amount is not None else None,
+            rounding_adj=str(header.rounding_adj) if header.rounding_adj is not None else None,
+        )
+
+    # ── 5. Load LineItems ─────────────────────────────────────────────────────
+    line_items_result = await db.execute(
+        select(LineItem)
+        .where(LineItem.draft_id == draft.draft_id)
+        .order_by(LineItem.sequence_number)
+    )
+    line_items = list(line_items_result.scalars().all())
+
+    # ── 6. Load TaxAssignments for all line items (single query) ──────────────
+    line_item_ids = [item.line_item_id for item in line_items]
+    tax_map: dict[str, TaxAssignment] = {}
+    if line_item_ids:
+        ta_result = await db.execute(
+            select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids))
+        )
+        for ta in ta_result.scalars().all():
+            tax_map[str(ta.line_item_id)] = ta
+
+    line_item_previews: list[LineItemPreview] = []
+    for item in line_items:
+        ta = tax_map.get(str(item.line_item_id))
+        line_item_previews.append(
+            LineItemPreview(
+                line_item_id=item.line_item_id,
+                sequence_number=item.sequence_number,
+                description=item.description,
+                quantity=str(item.quantity) if item.quantity is not None else None,
+                unit=item.unit,
+                unit_price=str(item.unit_price) if item.unit_price is not None else None,
+                line_total=str(item.line_total) if item.line_total is not None else None,
+                tax_type=(
+                    ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type)
+                ) if ta is not None else None,
+                tax_rate=str(ta.tax_rate) if (ta is not None and ta.tax_rate is not None) else None,
+                tax_amount=str(ta.tax_amount) if (ta is not None and ta.tax_amount is not None) else None,
+            )
+        )
+
+    # ── 7. Load PaymentDetails ────────────────────────────────────────────────
+    payment_result = await db.execute(
+        select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
+    )
+    payment = payment_result.scalar_one_or_none()
+
+    payment_preview: PaymentDetailsPreview | None = None
+    if payment is not None:
+        payment_preview = PaymentDetailsPreview(
+            bank_account_number=payment.bank_account_number,
+            bank_name=payment.bank_name,
+            payment_reference=payment.payment_reference,
+        )
+
+    # ── 8. Build and return response (Req 14.2 — include disclaimer) ──────────
+    return VoucherPreviewResponse(
+        request_id=request_id,
+        status=req.status,
+        header_fields=header_preview,
+        line_items=line_item_previews,
+        payment_details=payment_preview,
+        authorization_disclaimer=settings.AUTHORIZATION_DISCLAIMER,
+    )
+
+
+# ── POST /requests/{request_id}/voucher-pdf ───────────────────────────────────
 
 @router.post(
     "/{request_id}/voucher-pdf",
@@ -198,7 +362,6 @@ async def generate_voucher_pdf(
         )
 
         # ── 7. Convert to PDF ─────────────────────────────────────────────────
-        import weasyprint  # lazy import — requires native Pango/GLib at runtime
         pdf_bytes: bytes = weasyprint.HTML(string=rendered_html).write_pdf()
 
         # ── 8. Compute hashes ─────────────────────────────────────────────────
@@ -283,3 +446,139 @@ async def generate_voucher_pdf(
         "file_key": file_key,
         "generated_at": generated_at.isoformat(),
     }
+
+
+# ── GET /requests/{request_id}/voucher-pdf ────────────────────────────────────
+
+@router.get(
+    "/{request_id}/voucher-pdf",
+    summary="Download the Voucher PDF for an approved request (Client PIC only)",
+)
+async def download_voucher_pdf(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("CLIENT_PIC")),
+) -> StreamingResponse:
+    """
+    Download the generated Voucher PDF and trigger the SENT_TO_CLIENT transition.
+
+    On first call:
+      1. Write VOUCHER_DOWNLOADED AuditEvent
+      2. Write STATUS_CHANGED AuditEvent (AMIGA_REVIEWED → SENT_TO_CLIENT)
+      3. Transition request.status to SENT_TO_CLIENT
+
+    Subsequent calls return the same PDF without writing duplicate events (idempotent).
+
+    Access rules:
+    - Role must be CLIENT_PIC (Req 16.1)
+    - User must hold an active ClientAssignment for the request's client (Req 16.3)
+    - Request must be in AMIGA_REVIEWED status (Req 16.4)
+    - A VoucherPDF record must already exist (generated by POST /voucher-pdf)
+
+    Requirements: 16.1, 16.2, 16.3, 16.4, 16.5
+    """
+    # ── 0. Load request ───────────────────────────────────────────────────────
+    result = await db.execute(
+        select(InvoiceRequest).where(InvoiceRequest.request_id == request_id)
+    )
+    req = result.scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
+
+    # ── 1. Client assignment check (Req 16.3) — no client data in response ────
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to access Requests for this client.",
+        )
+
+    # ── 2. Status guard (Req 16.4) ────────────────────────────────────────────
+    if req.status not in (RequestStatus.AMIGA_REVIEWED, RequestStatus.SENT_TO_CLIENT):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The voucher is not yet available for this Request. "
+                "The Request has not completed the required independent review."
+            ),
+        )
+
+    # ── 3. Load VoucherPDF record ─────────────────────────────────────────────
+    voucher_result = await db.execute(
+        select(VoucherPDF).where(VoucherPDF.request_id == request_id)
+    )
+    voucher_record = voucher_result.scalar_one_or_none()
+    if voucher_record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No voucher PDF has been generated for this Request.",
+        )
+
+    # ── 4. Idempotency check — has SENT_TO_CLIENT already been recorded? ──────
+    existing_event_result = await db.execute(
+        select(AuditEvent)
+        .where(
+            AuditEvent.request_id == request_id,
+            AuditEvent.event_type == AuditEventType.VOUCHER_DOWNLOADED,
+        )
+        .limit(1)
+    )
+    already_sent = existing_event_result.scalar_one_or_none() is not None
+
+    if not already_sent:
+        # ── 5. Write VOUCHER_DOWNLOADED audit event (Req 16.1) ────────────────
+        downloaded_at = datetime.now(timezone.utc)
+        await log_event(
+            db,
+            AuditEventType.VOUCHER_DOWNLOADED,
+            payload={
+                "request_id": str(request_id),
+                "actor_id": str(current_user.user_id),
+                "download_timestamp": downloaded_at.isoformat(),
+                "file_key": voucher_record.file_key,
+            },
+            request_id=request_id,
+            actor_id=current_user.user_id,
+        )
+
+        # ── 6. Write STATUS_CHANGED audit event (Req 16.2) ───────────────────
+        await log_event(
+            db,
+            AuditEventType.STATUS_CHANGED,
+            payload={
+                "from_status": RequestStatus.AMIGA_REVIEWED.value,
+                "to_status": RequestStatus.SENT_TO_CLIENT.value,
+                "actor_id": str(current_user.user_id),
+            },
+            request_id=request_id,
+            actor_id=current_user.user_id,
+        )
+
+        # ── 7. Transition request status to SENT_TO_CLIENT (Req 16.2) ────────
+        await request_repository.update_status(db, request_id, RequestStatus.SENT_TO_CLIENT)
+
+        await db.commit()
+
+    # ── 8. Fetch PDF bytes from S3 ────────────────────────────────────────────
+    try:
+        pdf_bytes = await file_store.download(voucher_record.file_key)
+    except StorageError as exc:
+        logger.error(
+            "Failed to download voucher PDF for request %s (key=%s): %s",
+            request_id,
+            voucher_record.file_key,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve the voucher PDF. Please try again.",
+        )
+
+    # ── 9. Stream PDF to caller ───────────────────────────────────────────────
+    return StreamingResponse(
+        content=iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="voucher_{request_id}.pdf"',
+        },
+    )

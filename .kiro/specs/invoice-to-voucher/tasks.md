@@ -280,13 +280,13 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - _Requirements: 15.1, 15.2, 15.4, 15.5, 15.6, 21.6, 22.3, 22.4, 22.5, 22.7, 22.8, 20.3, 20.6_
   - [x] 28.2 Enforce status guard: if `request.status != AMIGA_REVIEWED`, return error stating the Request has not completed independent review
     - _Requirements: 15.3_
-  - [ ] 28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output
+  - [x] 28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output
     - _Requirements: 15.3, 15.5, 15.6_
 
-- [ ] 29. Implement voucher preview
-  - [ ] 29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds
+- [x] 29. Implement voucher preview
+  - [x] 29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds
     - _Requirements: 14.1, 14.2, 14.3_
-  - [ ] 29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error
+  - [x] 29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error
     - _Requirements: 14.2, 14.4_
   - [ ]* 29.3 Write unit tests for `VoucherPreview` component: renders disclaimer, displays all approved fields, shows error + retry on API failure
     - _Requirements: 14.2, 14.4_
@@ -294,10 +294,10 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 14: Disclaimer Present in All Voucher Outputs**
     - **Validates: Requirements 14.2, 15.2, 15.4**
 
-- [ ] 30. Implement voucher download and SENT_TO_CLIENT transition
-  - [ ] 30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type="application/pdf")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded
+- [x] 30. Implement voucher download and SENT_TO_CLIENT transition
+  - [x] 30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type="application/pdf")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded
     - _Requirements: 16.1, 16.2, 16.5_
-  - [ ] 30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available
+  - [x] 30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available
     - _Requirements: 16.3, 16.4_
   - [ ]* 30.3 Write pytest tests for download: status ≠ `AMIGA_REVIEWED` blocked, missing assignment blocked, first download triggers `SENT_TO_CLIENT` transition, second download does NOT create a duplicate `SENT_TO_CLIENT` event (idempotency)
     - _Requirements: 16.1, 16.2, 16.3, 16.4_

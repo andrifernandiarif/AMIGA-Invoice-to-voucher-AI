@@ -112,6 +112,7 @@ class RequestDetailResponse(BaseModel):
     evidence_files: List[dict]
     rejection_reason: Optional[str] = None
     draft: Optional[DraftResponse] = None
+    sent_to_client_at: Optional[datetime] = None  # Req 16.5: UTC timestamp from SENT_TO_CLIENT AuditEvent
 
     model_config = {"from_attributes": True}
 

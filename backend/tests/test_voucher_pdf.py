@@ -954,8 +954,6 @@ class TestDisclaimerPresence:
             def write_pdf(self):
                 return b"%PDF-1.4 disclaimer-test"
 
-        import weasyprint as _real_weasyprint  # noqa: F401 (just for reference)
-
         with patch("app.routes.voucher.weasyprint") as mock_wp:
             mock_wp.HTML.side_effect = CapturingHTML
             with patch("app.routes.voucher.file_store") as mock_store:
