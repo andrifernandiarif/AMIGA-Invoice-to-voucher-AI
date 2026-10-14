@@ -222,27 +222,27 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 ### Phase 6: Review Workspace and Corrections
 
-- [ ] 22. Implement draft field update endpoint
-  - [ ] 22.1 Implement `PUT /requests/{id}/fields` FastAPI router (Finance Reviewer + active `ClientAssignment` via `Depends`): accept a Pydantic v2 request body `{ field_path: str, new_value: str }`; load the current value from the appropriate table (`HeaderFields` / `LineItem` / `PaymentDetails`) by `field_path`; if new value differs from current value, atomically update the field value AND insert a `FieldRevision` record within a single SQLAlchemy async transaction; on transaction failure, roll back both writes and return `HTTPException(500, "The change could not be saved. Please try again.")`; append a `FIELD_REVISED` `AuditEvent` referencing `revision_id`; skip entirely (no-op) if `new_value == old_value`
+- [x] 22. Implement draft field update endpoint
+  - [x] 22.1 Implement `PUT /requests/{id}/fields` FastAPI router (Finance Reviewer + active `ClientAssignment` via `Depends`): accept a Pydantic v2 request body `{ field_path: str, new_value: str }`; load the current value from the appropriate table (`HeaderFields` / `LineItem` / `PaymentDetails`) by `field_path`; if new value differs from current value, atomically update the field value AND insert a `FieldRevision` record within a single SQLAlchemy async transaction; on transaction failure, roll back both writes and return `HTTPException(500, "The change could not be saved. Please try again.")`; append a `FIELD_REVISED` `AuditEvent` referencing `revision_id`; skip entirely (no-op) if `new_value == old_value`
     - _Requirements: 11.1, 11.2, 11.5_
-  - [ ] 22.2 Implement `GET /requests/{id}/revisions` FastAPI router (Finance Reviewer, Service Lead, System Admin only): return the complete `FieldRevision` list for the Request ordered by `revised_at` ascending
+  - [x] 22.2 Implement `GET /requests/{id}/revisions` FastAPI router (Finance Reviewer, Service Lead, System Admin only): return the complete `FieldRevision` list for the Request ordered by `revised_at` ascending
     - _Requirements: 11.4, 17.3_
-  - [ ]* 22.3 Write pytest tests for field update: value unchanged → no revision written, value changed → revision persisted, persistence failure → field unchanged + error, unauthorized role → 403
+  - [x] 22.3 Write pytest tests for field update: value unchanged → no revision written, value changed → revision persisted, persistence failure → field unchanged + error, unauthorized role → 403
     - _Requirements: 11.1, 11.5_
-  - [ ]* 22.4 Write Hypothesis property test for **Property 11** (field revisions complete, ordered, authorized roles only): for any field modification where `new_value ≠ old_value`, a `FieldRevision` with correct `field_path`, old value, new value, actor `user_id`, and UTC timestamp SHALL be recorded; revisions returned in non-decreasing `revised_at` order; endpoint returns 403 for any role other than Finance_Reviewer, Service_Lead, or System_Admin
+  - [x] 22.4 Write Hypothesis property test for **Property 11** (field revisions complete, ordered, authorized roles only): for any field modification where `new_value ≠ old_value`, a `FieldRevision` with correct `field_path`, old value, new value, actor `user_id`, and UTC timestamp SHALL be recorded; revisions returned in non-decreasing `revised_at` order; endpoint returns 403 for any role other than Finance_Reviewer, Service_Lead, or System_Admin
     - **Property 11: Field Revisions Complete, Ordered, Access-Controlled**
     - **Validates: Requirements 11.1, 11.2, 11.4, 17.2, 17.3**
 
-- [ ] 23. Implement review workspace React UI
-  - [ ] 23.1 Build the `ReviewWorkspace` component: two-panel layout (PDF viewer panel on the left, editable draft form panel on the right); both panels are simultaneously visible without scrolling between them; PDF viewer uses `react-pdf` to render the invoice file fetched from the backend; form panel renders all `HeaderFields`, `LineItems`, and `PaymentDetails` as individually editable inputs; render the "AI-generated draft — not approved" label persistently at the top of the form panel
+- [x] 23. Implement review workspace React UI
+  - [x] 23.1 Build the `ReviewWorkspace` component: two-panel layout (PDF viewer panel on the left, editable draft form panel on the right); both panels are simultaneously visible without scrolling between them; PDF viewer uses `react-pdf` to render the invoice file fetched from the backend; form panel renders all `HeaderFields`, `LineItems`, and `PaymentDetails` as individually editable inputs; render the "AI-generated draft — not approved" label persistently at the top of the form panel
     - _Requirements: 4.2, 10.1, 10.3, 10.4_
-  - [ ] 23.2 For each editable field, display the original AI-extracted value adjacent to the edit control (read-only); call `PUT /requests/{id}/fields` on field blur/save; show a confirmation prompt when the user attempts to navigate away with unsaved changes
+  - [x] 23.2 For each editable field, display the original AI-extracted value adjacent to the edit control (read-only); call `PUT /requests/{id}/fields` on field blur/save; show a confirmation prompt when the user attempts to navigate away with unsaved changes
     - _Requirements: 10.4, 10.6_
-  - [ ] 23.3 Handle PDF load failure: display an error message in the PDF panel and a direct download link for the original file
+  - [x] 23.3 Handle PDF load failure: display an error message in the PDF panel and a direct download link for the original file
     - _Requirements: 10.5_
-  - [ ] 23.4 On workspace mount, begin measuring the time from navigation request to the point when both panels are interactive; report this duration to `POST /telemetry/page-load` with `page = REVIEW_WORKSPACE`
+  - [x] 23.4 On workspace mount, begin measuring the time from navigation request to the point when both panels are interactive; report this duration to `POST /telemetry/page-load` with `page = REVIEW_WORKSPACE`
     - _Requirements: 10.2, 20.2, 20.7_
-  - [ ]* 23.5 Write unit tests for `ReviewWorkspace`: renders AI label, unsaved-changes prompt fires on navigation, PDF load failure shows error + download link, field edit calls the update API
+  - [x] 23.5 Write unit tests for `ReviewWorkspace`: renders AI label, unsaved-changes prompt fires on navigation, PDF load failure shows error + download link, field edit calls the update API
     - _Requirements: 4.2, 10.4, 10.5, 10.6_
 
 - [ ] 24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.
@@ -506,3 +506,5 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   ]
 }
 ```
+
+

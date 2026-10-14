@@ -4,18 +4,32 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 from typing import List
+from fastapi import Body
+from fastapi.responses import StreamingResponse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
 
 from app.dependencies import get_db, require_role, require_client_assignment
 from app.models.audit import AuditEventType
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
+from app.models.header_fields import HeaderFields
+from app.models.invoice_fields import LineItem
+from app.models.payment_details import PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.models.user import User, UserRole
 from app.repositories.request_repository import request_repository
 from app.repositories.user_repository import user_repository
-from app.schemas.request_schemas import CreateRequestResponse
+from app.schemas.request_schemas import (
+    CreateRequestResponse,
+    FieldRevisionResponse,
+    LineItemResponse,
+    PaymentDetailsResponse,
+    RequestDetailResponse,
+    RequestSummary,
+    EvidenceFileResponse,
+)
 from app.services.audit_service import log_event
 from app.services.request_service import RequestIdGenerationError, generate_request_id
 from app.storage import StorageError, file_store
@@ -24,7 +38,7 @@ router = APIRouter(prefix="/requests", tags=["requests"])
 
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024   # 20 MB per file
 MAX_FILES_PER_SESSION = 20
-ACCEPTED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
+ACCEPTED_TYPES = {"application/pdf", "image/png", "image.jpeg", "image/jpg"}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CreateRequestResponse)

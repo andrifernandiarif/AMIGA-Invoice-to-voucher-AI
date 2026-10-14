@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit import FieldRevision
 from app.models.request import InvoiceRequest, RequestStatus
 
 
@@ -134,5 +135,136 @@ class RequestRepository:
         )
         await db.flush()
 
+    async def get_field_revisions(
+        self, db: AsyncSession, request_id: uuid.UUID
+    ) -> list[FieldRevision]:
+        """Return all field revisions for a request, ordered by revised_at ascending."""
+        stmt = (
+            select(FieldRevision)
+            .where(FieldRevision.request_id == request_id)
+            .order_by(FieldRevision.revised_at.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
 
 request_repository = RequestRepository()
+
+
+    async def update_field_value(
+        self,
+        db: AsyncSession,
+        request_id: uuid.UUID,
+        field_path: str,
+        new_value: str,
+    ) -> bool:
+        """
+        Atomically update a field value in HeaderFields, LineItem, or PaymentDetails.
+        Returns True if the value changed, False if unchanged (same value).
+        Raises ValueError if field_path is invalid.
+        """
+        # Parse field_path to determine which table and field to update
+        # Format: "header.subtotal", "line_items[0].description", "payment.bank_account_number"
+        parts = field_path.split(".", 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid field_path: {field_path}")
+        
+        table_name, field_name = parts
+        
+        # Get draft_id for this request
+        stmt = select(Draft).where(Draft.request_id == request_id)
+        result = await db.execute(stmt)
+        draft = result.scalar_one_or_none()
+        if draft is None:
+            raise ValueError(f"No draft found for request {request_id}")
+        
+        # Route to appropriate table and field
+        if table_name == "header":
+            # Update HeaderFields
+            table = HeaderFields
+            filter_col = table.header_id
+            update_stmt = (
+                update(HeaderFields)
+                .where(HeaderFields.draft_id == draft.draft_id)
+                .values(**{field_name: new_value})
+            )
+        elif table_name == "line_items":
+            # Update LineItem - parse index from field_name
+            import re
+            match = re.match(r"(\d+)\.(.+)", field_name)
+            if not match:
+                raise ValueError(f"Invalid line_items field_path: {field_name}")
+            index = int(match.group(1))
+            field_name = match.group(2)
+            
+            # Get the line_item by sequence_number
+            stmt = select(LineItem).where(
+                LineItem.draft_id == draft.draft_id,
+                LineItem.sequence_number == index
+            )
+            result = await db.execute(stmt)
+            line_item = result.scalar_one_or_none()
+            if line_item is None:
+                raise ValueError(f"LineItem at index {index} not found in draft {draft.draft_id}")
+            
+            update_stmt = (
+                update(LineItem)
+                .where(LineItem.line_item_id == line_item.line_item_id)
+                .values(**{field_name: new_value})
+            )
+        elif table_name == "payment":
+            # Update PaymentDetails
+            stmt = select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
+            result = await db.execute(stmt)
+            payment = result.scalar_one_or_none()
+            if payment is None:
+                raise ValueError(f"No payment details found for draft {draft.draft_id}")
+            
+            update_stmt = (
+                update(PaymentDetails)
+                .where(PaymentDetails.payment_id == payment.payment_id)
+                .values(**{field_name: new_value})
+            )
+        else:
+            raise ValueError(f"Unknown table name: {table_name}")
+        
+        # Check current value before updating
+        result = await db.execute(stmt)  # Re-execute the appropriate select
+        if table_name == "header":
+            result = await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
+            current = result.scalar_one_or_none()
+            if current and getattr(current, field_name) == new_value:
+                return False
+        elif table_name == "payment":
+            result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
+            current = result.scalar_one_or_none()
+            if current and getattr(current, field_name) == new_value:
+                return False
+        
+        # Perform the update
+        await db.execute(update_stmt)
+        await db.flush()
+        return True
+
+    async def create_field_revision(
+        self,
+        db: AsyncSession,
+        request_id: uuid.UUID,
+        field_path: str,
+        old_value: str | None,
+        new_value: str | None,
+        actor_id: uuid.UUID,
+    ) -> None:
+        """Insert a FieldRevision record."""
+        now = datetime.now(timezone.utc)
+        revision = FieldRevision(
+            revision_id=uuid.uuid4(),
+            request_id=request_id,
+            field_path=field_path,
+            old_value=old_value,
+            new_value=new_value,
+            actor_id=actor_id,
+            revised_at=now,
+        )
+        db.add(revision)
+        await db.flush()
