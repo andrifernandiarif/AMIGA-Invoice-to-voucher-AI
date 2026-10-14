@@ -8,7 +8,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, require_role
+from app.dependencies import get_db, require_role, require_client_assignment
 from app.models.audit import AuditEventType
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.models.request import InvoiceRequest, RequestStatus
@@ -136,3 +136,39 @@ async def upload_invoice(
     # Reload request to return (still in QUEUED status)
     req = await request_repository.get_by_id(db, request_id)
     return req
+
+
+@router.post("/{request_id}/dismiss-duplicate", status_code=status.HTTP_200_OK)
+async def dismiss_duplicate(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("FINANCE_REVIEWER")),
+    _: None = Depends(require_client_assignment(request_id)),
+):
+    """
+    Remove the POSSIBLE_DUPLICATE flag from a request.
+    Only Finance Reviewer role can dismiss duplicates.
+    Requires active client assignment for the request's client.
+    """
+    # Fetch the request
+    req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise HTTPException(404, "Request not found.")
+
+    # Remove the POSSIBLE_DUPLICATE flag
+    await request_repository.remove_flag(db, request_id, "POSSIBLE_DUPLICATE")
+
+    # Log the FLAG_DISMISSED event
+    await log_event(
+        db,
+        AuditEventType.FLAG_DISMISSED,
+        payload={
+            "request_id": str(request_id),
+            "flag": "POSSIBLE_DUPLICATE",
+        },
+        request_id=request_id,
+        actor_id=current_user.user_id,
+    )
+
+    await db.commit()
+    return {"status": "success"}

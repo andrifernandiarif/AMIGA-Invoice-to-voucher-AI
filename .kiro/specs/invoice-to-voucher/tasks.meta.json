@@ -407,6 +407,16 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288203
+      },
+      {
+        "executionId": "37f9ff06-ed74-4437-a6e0-ecfedc68387e",
+        "chatSessionId": "sess_486dd246-339e-4443-b5c0-9e805395454f",
+        "timestamp": 1791942619365
+      },
+      {
+        "executionId": "37f9ff06-ed74-4437-a6e0-ecfedc68387e",
+        "chatSessionId": "sess_486dd246-339e-4443-b5c0-9e805395454f",
+        "timestamp": 1791943118087
       }
     ],
     "18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy": [
@@ -441,6 +451,16 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288264
+      },
+      {
+        "executionId": "6924f106-3ba8-4494-a498-2bc9aa506a87",
+        "chatSessionId": "sess_ebcaa59d-f20d-43f4-9ce6-6b561da37740",
+        "timestamp": 1791943219355
+      },
+      {
+        "executionId": "6924f106-3ba8-4494-a498-2bc9aa506a87",
+        "chatSessionId": "sess_ebcaa59d-f20d-43f4-9ce6-6b561da37740",
+        "timestamp": 1791943506481
       }
     ],
     "19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`": [
@@ -453,6 +473,16 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288290
+      },
+      {
+        "executionId": "6924f106-3ba8-4494-a498-2bc9aa506a87",
+        "chatSessionId": "sess_ebcaa59d-f20d-43f4-9ce6-6b561da37740",
+        "timestamp": 1791943512742
+      },
+      {
+        "executionId": "6924f106-3ba8-4494-a498-2bc9aa506a87",
+        "chatSessionId": "sess_ebcaa59d-f20d-43f4-9ce6-6b561da37740",
+        "timestamp": 1791943518254
       }
     ],
     "20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty": [
@@ -465,6 +495,16 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288322
+      },
+      {
+        "executionId": "1dd2eb89-0476-47d9-8c13-6c7113f0e5cf",
+        "chatSessionId": "sess_e2efa31e-9f98-4609-ae72-a2e1eea4aa9c",
+        "timestamp": 1791943711927
+      },
+      {
+        "executionId": "1dd2eb89-0476-47d9-8c13-6c7113f0e5cf",
+        "chatSessionId": "sess_e2efa31e-9f98-4609-ae72-a2e1eea4aa9c",
+        "timestamp": 1791944318925
       }
     ],
     "21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.": [
@@ -1156,13 +1196,6 @@
         "executionId": "c1895ef4-0763-4dbb-bc71-700f64b66483",
         "chatSessionId": "sess_a31cdded-14d7-4442-b10b-ac2fe8988200",
         "timestamp": 1791939753701
-      }
-    ],
-    "18. Implement calculation validation": [
-      {
-        "executionId": "731407e9-4af2-4e4d-8e98-aa7173b0715e",
-        "chatSessionId": "sess_60266b3c-27c1-46f1-9d69-57f0e980e1e7",
-        "timestamp": 1791943892859
       }
     ]
   }

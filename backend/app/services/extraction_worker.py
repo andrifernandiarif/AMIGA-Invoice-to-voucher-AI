@@ -252,9 +252,7 @@ async def _process_job(job: ExtractionJob) -> None:
             # Run validation
             flags = await run_validation(
                 request_id=job.request_id,
-                header=header_orm,
-                line_items=line_item_orms,
-                payment=payment_orm,
+                draft=draft,
                 db=db,
             )
 
