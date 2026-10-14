@@ -2,7 +2,7 @@
 // Validates requirements: 4.2, 10.4, 10.5, 10.6
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import ReviewWorkspace from './ReviewWorkspace';
 
 // Mock the PDF library
 vi.mock('react-pdf', () => ({
@@ -25,7 +25,7 @@ vi.mock('react-router-dom', () => ({
 // Mock the fetch API
 const createMockFetch = () => {
   const mockFetch = vi.fn();
-  (global as any).fetch = mockFetch;
+  (globalThis as any).fetch = mockFetch;
   return mockFetch;
 };
 
@@ -119,7 +119,7 @@ describe('ReviewWorkspace', () => {
     it('renders AI label ("AI-generated draft — not approved")', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      const aiLabel = screen.getByTestId('ai-label');
+      const aiLabel = await screen.findByTestId('ai-label');
       expect(aiLabel).toBeInTheDocument();
       expect(aiLabel).toHaveTextContent('AI-generated draft — not approved');
     });
@@ -168,10 +168,8 @@ describe('ReviewWorkspace', () => {
     it('fires unsaved-changes prompt on navigation when changes exist', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      // Wait for component to load
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      // Wait for component to finish loading
+      await screen.findByTestId('review-workspace');
 
       // Simulate user editing a field
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
@@ -180,7 +178,6 @@ describe('ReviewWorkspace', () => {
       // Trigger beforeunload event
       const beforeUnloadEvent = new Event('beforeunload', { bubbles: true, cancelable: true });
       beforeUnloadEvent.preventDefault = vi.fn();
-      beforeUnloadEvent.returnValue = '';
 
       window.dispatchEvent(beforeUnloadEvent);
 
@@ -194,18 +191,21 @@ describe('ReviewWorkspace', () => {
     it('shows navigation confirmation dialog when leaving with unsaved changes', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Edit a field to create unsaved changes
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
       fireEvent.change(vendorInput, { target: { value: 'New Vendor Name' } });
 
-      // The beforeunload handler should trigger the confirmNavigation state
-      // Since we can't directly trigger window event in React Testing Library,
-      // we'll verify the component structure for the confirmation dialog
-      expect(screen.getByTestId('navigation-confirm')).toBeInTheDocument();
+      // Dispatch beforeunload to trigger the confirmation state
+      const beforeUnloadEvent = new Event('beforeunload', { bubbles: true, cancelable: true });
+      beforeUnloadEvent.preventDefault = vi.fn();
+      window.dispatchEvent(beforeUnloadEvent);
+
+      // The confirmNavigation state should now show the dialog
+      await waitFor(() => {
+        expect(screen.getByTestId('navigation-confirm')).toBeInTheDocument();
+      });
     });
   });
 
@@ -213,9 +213,7 @@ describe('ReviewWorkspace', () => {
     it('calls PUT /api/requests/{id}/fields API on field blur with changes', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Edit a field
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
@@ -235,8 +233,11 @@ describe('ReviewWorkspace', () => {
       });
 
       // Verify request body contains correct field path and new value
-      const fetchCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
-      const requestBody = JSON.parse(fetchCall[1].body);
+      const fieldsCall = mockFetch.mock.calls.find(
+        ([url]) => typeof url === 'string' && url.includes('/fields')
+      );
+      expect(fieldsCall).toBeDefined();
+      const requestBody = JSON.parse(fieldsCall![1].body);
       expect(requestBody).toEqual({
         field_path: 'header.vendor_name',
         new_value: 'Updated Vendor',
@@ -246,9 +247,7 @@ describe('ReviewWorkspace', () => {
     it('removes field from unsaved changes after successful API call', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Edit a field
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
@@ -287,9 +286,7 @@ describe('ReviewWorkspace', () => {
 
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Spy on console.error to verify error is logged
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -315,9 +312,7 @@ describe('ReviewWorkspace', () => {
     it('displays original AI-extracted value adjacent to edit control', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Find the original value display
       const originalValue = screen.getByText('Test Vendor', { selector: '.original-value' });
@@ -327,9 +322,7 @@ describe('ReviewWorkspace', () => {
     it('shows correct unsaved changes count', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Edit multiple fields
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
@@ -365,9 +358,7 @@ describe('ReviewWorkspace', () => {
 
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Check that inputs are disabled
       const vendorInput = screen.getByRole('textbox', { name: /Vendor Name/i });
@@ -377,9 +368,7 @@ describe('ReviewWorkspace', () => {
     it('renders two-panel layout structure', async () => {
       render(<ReviewWorkspaceWrapper requestId={mockRequestId} />);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('review-workspace')).toBeInTheDocument();
-      });
+      await screen.findByTestId('review-workspace');
 
       // Check PDF panel exists
       expect(screen.getByTestId('pdf-panel')).toBeInTheDocument();

@@ -631,6 +631,16 @@
         "executionId": "5bf559a1-c98f-4501-b290-fc2a49992357",
         "chatSessionId": "sess_9693bc9f-5272-4b97-87c0-54227d699da8",
         "timestamp": 1791947804025
+      },
+      {
+        "executionId": "f0903385-11ae-4d18-a0c9-bdeaa3d48d04",
+        "chatSessionId": "sess_1a5df7fd-aba3-4e04-a5ce-94f9358ee5d8",
+        "timestamp": 1791960427676
+      },
+      {
+        "executionId": "f0903385-11ae-4d18-a0c9-bdeaa3d48d04",
+        "chatSessionId": "sess_1a5df7fd-aba3-4e04-a5ce-94f9358ee5d8",
+        "timestamp": 1791961620864
       }
     ],
     "25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, \"Self-approval is not permitted.\")`; if any active EXCEPTION flag exists raise `HTTPException(409, \"Unresolved exceptions must be addressed before this Request can be approved.\")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, \"You do not have authority to approve Requests.\")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts": [

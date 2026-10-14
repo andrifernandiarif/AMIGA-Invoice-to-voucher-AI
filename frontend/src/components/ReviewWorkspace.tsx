@@ -52,7 +52,8 @@ interface Request {
   draft: Draft | null;
 }
 
-interface FieldRevision {
+// FieldRevision is used by the revisions endpoint response shape (exported for typing)
+export interface FieldRevision {
   revision_id: string;
   field_path: string;
   old_value: string | null;
@@ -125,7 +126,6 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
   
   const mountTimeRef = useRef<number>(0);
   const panelsReadyRef = useRef<boolean>(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load request data
   useEffect(() => {
@@ -145,7 +145,8 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
             const blob = await fetchEvidenceFile(data.evidence_files[0].file_key);
             setPdfBlob(blob);
           } catch (pdfError) {
-            setPdfError(`Failed to load PDF: ${pdfError.message}`);
+            const msg = pdfError instanceof Error ? pdfError.message : String(pdfError);
+            setPdfError(`Failed to load PDF: ${msg}`);
           }
         }
 
@@ -344,9 +345,10 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
           
           return (
             <div key={path} className="field-group">
-              <label>{label}</label>
+              <label htmlFor={`field-${path}`}>{label}</label>
               <div className="field-input-wrapper">
                 <input
+                  id={`field-${path}`}
                   type="text"
                   value={unsavedValue ?? originalValue}
                   onChange={(e) => handleFieldChange(path, e.target.value)}
@@ -384,9 +386,10 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
               
               return (
                 <div key={fieldPath} className="field-group">
-                  <label>{label}</label>
+                  <label htmlFor={`field-${fieldPath}`}>{label}</label>
                   <div className="field-input-wrapper">
                     <input
+                      id={`field-${fieldPath}`}
                       type="text"
                       value={unsavedValue ?? originalValue}
                       onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
@@ -429,9 +432,10 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
           
           return (
             <div key={path} className="field-group">
-              <label>{label}</label>
+              <label htmlFor={`field-${path}`}>{label}</label>
               <div className="field-input-wrapper">
                 <input
+                  id={`field-${path}`}
                   type="text"
                   value={unsavedValue ?? originalValue}
                   onChange={(e) => handleFieldChange(path, e.target.value)}
@@ -464,7 +468,7 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
               <p>{pdfError}</p>
               {request?.evidence_files && request.evidence_files.length > 0 && (
                 <a
-                  href={`/requests/evidence/${request.evidence_files[0].file_key}`}
+                  href={`/api/requests/evidence/${request.evidence_files[0].file_key}`}
                   download={request.evidence_files[0].original_filename}
                   className="download-link"
                 >
@@ -480,7 +484,7 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
                 loading="Loading PDF..."
                 error="Failed to load PDF"
               >
-                {Array.from(new Array(numPages), (el, index) => (
+                {Array.from(new Array(numPages), (_el, index) => (
                   <Page key={`page_${index + 1}`} pageNumber={index + 1} scale={1} />
                 ))}
               </Document>

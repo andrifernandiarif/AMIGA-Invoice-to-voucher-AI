@@ -245,7 +245,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   - [x] 23.5 Write unit tests for `ReviewWorkspace`: renders AI label, unsaved-changes prompt fires on navigation, PDF load failure shows error + download link, field edit calls the update API
     - _Requirements: 4.2, 10.4, 10.5, 10.6_
 
-- [ ] 24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.
+- [x] 24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.
 
 ---
 
