@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import date, datetime, timezone
 
@@ -5,6 +6,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import FieldRevision
+from app.models.draft import Draft
+from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 
 
@@ -86,6 +89,29 @@ class RequestRepository:
             raise ValueError(f"Request {request_id} not found.")
         return req
 
+    async def update_status_with_reason(
+        self,
+        db: AsyncSession,
+        request_id: uuid.UUID,
+        new_status: RequestStatus,
+        rejection_reason: str,
+    ) -> InvoiceRequest:
+        """Transition the request to a new status and persist a rejection reason."""
+        await db.execute(
+            update(InvoiceRequest)
+            .where(InvoiceRequest.request_id == request_id)
+            .values(
+                status=new_status,
+                rejection_reason=rejection_reason,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        req = await self.get_by_id(db, request_id)
+        if req is None:
+            raise ValueError(f"Request {request_id} not found.")
+        return req
+
     async def apply_flag(
         self, db: AsyncSession, request_id: uuid.UUID, flag: str
     ) -> None:
@@ -148,9 +174,6 @@ class RequestRepository:
         return list(result.scalars().all())
 
 
-request_repository = RequestRepository()
-
-
     async def update_field_value(
         self,
         db: AsyncSession,
@@ -168,58 +191,62 @@ request_repository = RequestRepository()
         parts = field_path.split(".", 1)
         if len(parts) != 2:
             raise ValueError(f"Invalid field_path: {field_path}")
-        
+
         table_name, field_name = parts
-        
+
         # Get draft_id for this request
         stmt = select(Draft).where(Draft.request_id == request_id)
         result = await db.execute(stmt)
         draft = result.scalar_one_or_none()
         if draft is None:
             raise ValueError(f"No draft found for request {request_id}")
-        
+
         # Route to appropriate table and field
         if table_name == "header":
-            # Update HeaderFields
-            table = HeaderFields
-            filter_col = table.header_id
+            result = await db.execute(
+                select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
+            )
+            current = result.scalar_one_or_none()
+            if current and getattr(current, field_name, None) == new_value:
+                return False
             update_stmt = (
                 update(HeaderFields)
                 .where(HeaderFields.draft_id == draft.draft_id)
                 .values(**{field_name: new_value})
             )
         elif table_name == "line_items":
-            # Update LineItem - parse index from field_name
-            import re
             match = re.match(r"(\d+)\.(.+)", field_name)
             if not match:
                 raise ValueError(f"Invalid line_items field_path: {field_name}")
             index = int(match.group(1))
             field_name = match.group(2)
-            
-            # Get the line_item by sequence_number
-            stmt = select(LineItem).where(
+
+            stmt2 = select(LineItem).where(
                 LineItem.draft_id == draft.draft_id,
-                LineItem.sequence_number == index
+                LineItem.sequence_number == index,
             )
-            result = await db.execute(stmt)
+            result = await db.execute(stmt2)
             line_item = result.scalar_one_or_none()
             if line_item is None:
-                raise ValueError(f"LineItem at index {index} not found in draft {draft.draft_id}")
-            
+                raise ValueError(
+                    f"LineItem at index {index} not found in draft {draft.draft_id}"
+                )
             update_stmt = (
                 update(LineItem)
                 .where(LineItem.line_item_id == line_item.line_item_id)
                 .values(**{field_name: new_value})
             )
         elif table_name == "payment":
-            # Update PaymentDetails
-            stmt = select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-            result = await db.execute(stmt)
+            result = await db.execute(
+                select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
+            )
             payment = result.scalar_one_or_none()
             if payment is None:
-                raise ValueError(f"No payment details found for draft {draft.draft_id}")
-            
+                raise ValueError(
+                    f"No payment details found for draft {draft.draft_id}"
+                )
+            if getattr(payment, field_name, None) == new_value:
+                return False
             update_stmt = (
                 update(PaymentDetails)
                 .where(PaymentDetails.payment_id == payment.payment_id)
@@ -227,21 +254,7 @@ request_repository = RequestRepository()
             )
         else:
             raise ValueError(f"Unknown table name: {table_name}")
-        
-        # Check current value before updating
-        result = await db.execute(stmt)  # Re-execute the appropriate select
-        if table_name == "header":
-            result = await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
-            current = result.scalar_one_or_none()
-            if current and getattr(current, field_name) == new_value:
-                return False
-        elif table_name == "payment":
-            result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
-            current = result.scalar_one_or_none()
-            if current and getattr(current, field_name) == new_value:
-                return False
-        
-        # Perform the update
+
         await db.execute(update_stmt)
         await db.flush()
         return True
@@ -268,3 +281,6 @@ request_repository = RequestRepository()
         )
         db.add(revision)
         await db.flush()
+
+
+request_repository = RequestRepository()

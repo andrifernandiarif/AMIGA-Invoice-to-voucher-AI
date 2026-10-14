@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.request import RequestStatus
 
@@ -95,12 +95,22 @@ class EvidenceFileResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RejectRequestBody(BaseModel):
+    rejection_reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Reason for rejection (1–500 characters).",
+    )
+
+
 class RequestDetailResponse(BaseModel):
     request_id: uuid.UUID
     client_id: uuid.UUID
     status: RequestStatus
     flags: List[str]
     evidence_files: List[dict]
+    rejection_reason: Optional[str] = None
     draft: Optional[DraftResponse] = None
 
     model_config = {"from_attributes": True}

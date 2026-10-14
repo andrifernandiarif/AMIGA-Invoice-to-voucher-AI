@@ -14,9 +14,7 @@ from sqlalchemy import select, update
 from app.dependencies import get_db, require_role, require_client_assignment
 from app.models.audit import AuditEventType
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
-from app.models.header_fields import HeaderFields
-from app.models.invoice_fields import LineItem
-from app.models.payment_details import PaymentDetails
+from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.models.user import User, UserRole
 from app.repositories.request_repository import request_repository
@@ -26,6 +24,7 @@ from app.schemas.request_schemas import (
     FieldRevisionResponse,
     LineItemResponse,
     PaymentDetailsResponse,
+    RejectRequestBody,
     RequestDetailResponse,
     RequestSummary,
     EvidenceFileResponse,
@@ -154,6 +153,91 @@ async def upload_invoice(
     return req
 
 
+@router.post("/{request_id}/approve", status_code=status.HTTP_200_OK)
+async def approve_request(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(
+        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
+    )),
+):
+    """
+    Approve a Request for payment processing.
+    Only Finance Reviewers with an active client assignment may approve.
+    Enforces segregation of duties (uploader cannot approve their own submission).
+    SYSTEM_ADMIN attempts are logged as UNAUTHORIZED_APPROVAL_ATTEMPT.
+    """
+    # ── Step 1: Role check ─────────────────────────────────────────────────────
+    # SYSTEM_ADMIN: log an audit event, commit it, then raise 403
+    if current_user.role == UserRole.SYSTEM_ADMIN:
+        await log_event(
+            db,
+            AuditEventType.UNAUTHORIZED_APPROVAL_ATTEMPT,
+            payload={
+                "attempted_by": str(current_user.user_id),
+                "role": current_user.role.value,
+                "request_id": str(request_id),
+            },
+            request_id=request_id,
+            actor_id=current_user.user_id,
+        )
+        await db.commit()
+        raise HTTPException(403, "You do not have authority to approve Requests.")
+
+    # Any other non-FINANCE_REVIEWER role
+    if current_user.role != UserRole.FINANCE_REVIEWER:
+        raise HTTPException(403, "You do not have authority to approve Requests.")
+
+    # ── Step 2 & 3: Load request and verify client assignment ──────────────────
+    req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise HTTPException(404, "Request not found.")
+
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(403, "You are not authorized to access Requests for this client.")
+
+    # ── Step 4: Segregation of duties check ────────────────────────────────────
+    if req.uploader_id == current_user.user_id:
+        raise HTTPException(403, "Self-approval is not permitted.")
+
+    # ── Step 5: Exception flag / status check ──────────────────────────────────
+    exception_flags = {
+        "MISSING_EVIDENCE",
+        "CALCULATION_MISMATCH",
+        "SUBTOTAL_MISMATCH",
+        "TOTAL_MISMATCH",
+        "POSSIBLE_DUPLICATE",
+    }
+    if req.status == RequestStatus.EXCEPTION or any(
+        f in exception_flags for f in (req.flags or [])
+    ):
+        raise HTTPException(
+            409, "Unresolved exceptions must be addressed before this Request can be approved."
+        )
+
+    # ── Step 6: Status check ───────────────────────────────────────────────────
+    if req.status != RequestStatus.READY_FOR_REVIEW:
+        raise HTTPException(409, "Request is not in READY_FOR_REVIEW status.")
+
+    # ── Approve: transition status and write audit event ──────────────────────
+    await request_repository.update_status(db, request_id, RequestStatus.AMIGA_REVIEWED)
+
+    await log_event(
+        db,
+        AuditEventType.APPROVED,
+        payload={
+            "approver_id": str(current_user.user_id),
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        },
+        request_id=request_id,
+        actor_id=current_user.user_id,
+    )
+
+    await db.commit()
+    return {"status": "approved", "request_id": str(request_id)}
+
+
 @router.post("/{request_id}/dismiss-duplicate", status_code=status.HTTP_200_OK)
 async def dismiss_duplicate(
     request_id: uuid.UUID,
@@ -195,3 +279,67 @@ async def dismiss_duplicate(
 
     await db.commit()
     return {"status": "success"}
+
+
+@router.post("/{request_id}/reject", status_code=status.HTTP_200_OK)
+async def reject_request(
+    request_id: uuid.UUID,
+    body: RejectRequestBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(
+        "FINANCE_REVIEWER", "CLIENT_PIC", "INTAKE_SUPPORT", "SERVICE_LEAD", "SYSTEM_ADMIN"
+    )),
+):
+    """
+    Reject a Request with a mandatory reason (1–500 characters).
+
+    Only Finance Reviewers with an active client assignment may reject.
+    Enforces segregation of duties (uploader cannot reject their own submission).
+    Request must be in READY_FOR_REVIEW or EXCEPTION status.
+
+    Requirements: 13.1, 13.2, 13.3, 13.4
+    """
+    # ── Step 1: Role check ─────────────────────────────────────────────────────
+    if current_user.role != UserRole.FINANCE_REVIEWER:
+        raise HTTPException(403, "You do not have authority to reject Requests.")
+
+    # ── Step 2: Load request ───────────────────────────────────────────────────
+    req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise HTTPException(404, "Request not found.")
+
+    # ── Step 3: Client assignment check ───────────────────────────────────────
+    active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
+    if not active:
+        raise HTTPException(403, "You are not authorized to access Requests for this client.")
+
+    # ── Step 4: Segregation of duties check ────────────────────────────────────
+    if req.uploader_id == current_user.user_id:
+        raise HTTPException(403, "Self-rejection is not permitted.")
+
+    # ── Step 5: Status check — must be READY_FOR_REVIEW or EXCEPTION ──────────
+    if req.status not in (RequestStatus.READY_FOR_REVIEW, RequestStatus.EXCEPTION):
+        raise HTTPException(
+            409,
+            "Request must be in READY_FOR_REVIEW or EXCEPTION status to be rejected.",
+        )
+
+    # ── Reject: persist reason, transition status, write audit event ──────────
+    await request_repository.update_status_with_reason(
+        db, request_id, RequestStatus.REJECTED, body.rejection_reason
+    )
+
+    await log_event(
+        db,
+        AuditEventType.REJECTED,
+        payload={
+            "reason": body.rejection_reason,
+            "reviewer_id": str(current_user.user_id),
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
+        },
+        request_id=request_id,
+        actor_id=current_user.user_id,
+    )
+
+    await db.commit()
+    return {"status": "rejected", "request_id": str(request_id)}

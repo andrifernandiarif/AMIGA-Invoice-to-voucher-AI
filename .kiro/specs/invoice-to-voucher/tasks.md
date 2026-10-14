@@ -251,17 +251,17 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
 
 ### Phase 7: Approval and Rejection Workflow
 
-- [ ] 25. Implement Finance Reviewer approval
-  - [ ] 25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, "Self-approval is not permitted.")`; if any active EXCEPTION flag exists raise `HTTPException(409, "Unresolved exceptions must be addressed before this Request can be approved.")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, "You do not have authority to approve Requests.")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts
+- [x] 25. Implement Finance Reviewer approval
+  - [x] 25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, "Self-approval is not permitted.")`; if any active EXCEPTION flag exists raise `HTTPException(409, "Unresolved exceptions must be addressed before this Request can be approved.")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, "You do not have authority to approve Requests.")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 4.5_
-  - [ ]* 25.2 Write pytest tests for approval: self-approval rejected, wrong role rejected, `EXCEPTION` status blocked, valid approval transitions to `AMIGA_REVIEWED`, `SYSTEM_ADMIN` attempt logged as `UNAUTHORIZED_APPROVAL_ATTEMPT`
+  - [ ] 25.2 Write pytest tests for approval: self-approval rejected, wrong role rejected, `EXCEPTION` status blocked, valid approval transitions to `AMIGA_REVIEWED`, `SYSTEM_ADMIN` attempt logged as `UNAUTHORIZED_APPROVAL_ATTEMPT`
     - _Requirements: 12.2, 12.3, 12.4, 12.5_
   - [ ]* 25.3 Write Hypothesis property test for **Property 12** (approval enforces SOD and role restriction): for any approval action, (non-`FINANCE_REVIEWER` role → rejected) AND (uploader == actor → self-approval error) AND (`EXCEPTION` status → rejected); valid approval → `AMIGA_REVIEWED` + `APPROVED` `AuditEvent`
     - **Property 12: Approval Enforces Segregation of Duties**
     - **Validates: Requirements 12.1, 12.2, 12.3, 12.5, 4.5**
 
-- [ ] 26. Implement Finance Reviewer rejection
-  - [ ] 26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint
+- [x] 26. Implement Finance Reviewer rejection
+  - [x] 26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint
     - _Requirements: 13.1, 13.2, 13.3, 13.4_
   - [ ]* 26.2 Write pytest tests for rejection: 0-char reason rejected, 501-char reason rejected, 1-char and 500-char reasons accepted, self-rejection rejected, valid rejection transitions to `REJECTED` with reason in `AuditEvent`
     - _Requirements: 13.1, 13.4_
@@ -269,7 +269,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 13: Rejection Enforces SOD and Reason Length**
     - **Validates: Requirements 13.1, 13.2, 13.3, 13.4**
 
-- [ ] 27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.
+- [x] 27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.
 
 ---
 
