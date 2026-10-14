@@ -1,5 +1,10 @@
 {
-  "pbtResults": {},
+  "pbtResults": {
+    "18.3 Write Hypothesis property test for **Property 7** (calculation discrepancies beyond tolerance flagged with computed and extracted values): for any invoice where `|sum(line_totals) − subtotal| > tolerance` OR `|subtotal + tax + fees + rounding − total| > tolerance`, the system SHALL flag the field and display computed vs. extracted; within tolerance → no flag": {
+      "status": "passed",
+      "lastRunTimestamp": 1791943859232
+    }
+  },
   "executionHistory": {
     "1. Initialize monorepo structure and tooling": [
       {

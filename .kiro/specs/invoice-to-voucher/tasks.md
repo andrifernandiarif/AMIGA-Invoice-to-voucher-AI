@@ -147,27 +147,27 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   - [ ]* 14.3 Write pytest tests for the extraction job: full extraction success → `READY_FOR_REVIEW`, partial extraction (missing bank account) → `EXCEPTION` + `MISSING_EVIDENCE`, extraction failure after 3 retries → `EXCEPTION` + `PROCESSING_FAILED`
     - _Requirements: 4.1, 4.6, 6.1, 6.2_
 
-- [ ] 15. Implement extraction SLA timer and telemetry
+- [x] 15. Implement extraction SLA timer and telemetry
   - [ ] 15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`
     - _Requirements: 20.1, 20.4, 20.5_
   - [ ]* 15.2 Write pytest tests for SLA timer: duration under threshold → no breach record, duration over threshold → breach record with correct fields (`subject_id`, `duration_ms`, `page_count`, `measured_at`)
     - _Requirements: 20.4, 20.5_
 
-- [ ] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
+- [x] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
 
 ---
 
 ### Phase 5: Validation Engine
 
-- [ ] 17. Implement completeness validation (MISSING_EVIDENCE)
-  - [ ] 17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names
+- [x] 17. Implement completeness validation (MISSING_EVIDENCE)
+  - [x] 17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names
     - _Requirements: 5.3, 6.1, 6.2, 6.3_
   - [ ]* 17.2 Write Hypothesis property test for **Property 6** (MISSING_EVIDENCE flag for any missing required field): for any extraction result missing one or more required fields, the `AMIGA_System` SHALL apply `MISSING_EVIDENCE` AND set status to `EXCEPTION`; the exception UX SHALL list each missing `Payment_Details` field by name
     - **Property 6: MISSING_EVIDENCE Applied for Any Missing Required Field**
     - **Validates: Requirements 4.6, 5.3, 6.1, 6.2, 6.3**
 
-- [ ] 18. Implement calculation validation
-  - [ ] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
+- [x] 18. Implement calculation validation
+  - [x] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
     - _Requirements: 7.1, 7.2, 7.3_
   - [ ]* 18.2 Write pytest tests for `CalculationValidator`: exact tolerance boundary (no flag), just-over tolerance (flag), just-under tolerance (no flag), both checks discrepant (both fields flagged)
     - _Requirements: 7.1, 7.2_
@@ -175,10 +175,10 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 7: Calculation Discrepancies Flagged Accurately**
     - **Validates: Requirements 7.1, 7.2, 7.3**
 
-- [ ] 19. Implement duplicate detection
-  - [ ] 19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)
+- [x] 19. Implement duplicate detection
+  - [x] 19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)
     - _Requirements: 8.1, 8.2, 8.3_
-  - [ ] 19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`
+  - [x] 19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`
     - _Requirements: 8.4_
   - [ ]* 19.3 Write pytest tests for `DuplicateDetector`: exact-match case-insensitive hit → flag applied, `REJECTED`/`VOIDED` excluded → no flag, no match → no flag
     - _Requirements: 8.1, 8.2_
@@ -186,13 +186,13 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 8: Duplicate Detection Case-Insensitive, Excludes Terminal States**
     - **Validates: Requirements 8.1, 8.2, 8.3**
 
-- [ ] 20. Wire validators into the extraction pipeline
-  - [ ] 20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty
+- [x] 20. Wire validators into the extraction pipeline
+  - [x] 20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty
     - _Requirements: 4.2, 4.5, 6.2_
   - [ ]* 20.2 Write pytest integration tests: upload → extraction (all valid) → `READY_FOR_REVIEW`; upload → extraction (missing bank account) → `EXCEPTION` + `MISSING_EVIDENCE`; upload → extraction (total mismatch) → `EXCEPTION` + calc flag
     - _Requirements: 4.2, 6.2, 7.1_
 
-- [ ] 21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.
+- [x] 21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.
 
 ---
 
