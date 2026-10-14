@@ -148,26 +148,26 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - _Requirements: 4.1, 4.6, 6.1, 6.2_
 
 - [ ] 15. Implement extraction SLA timer and telemetry
-  - [~] 15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`
+  - [ ] 15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`
     - _Requirements: 20.1, 20.4, 20.5_
   - [ ]* 15.2 Write pytest tests for SLA timer: duration under threshold → no breach record, duration over threshold → breach record with correct fields (`subject_id`, `duration_ms`, `page_count`, `measured_at`)
     - _Requirements: 20.4, 20.5_
 
-- [~] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
+- [ ] 16. Checkpoint — Manually trigger a mock extraction job; verify `Draft`, `HeaderFields`, `LineItems`, `PaymentDetails`, status transition, `AuditEvent`s, and `TelemetryRecord` are all created. Ask the user if any questions arise.
 
 ---
 
 ### Phase 5: Validation Engine
 
 - [ ] 17. Implement completeness validation (MISSING_EVIDENCE)
-  - [~] 17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names
+  - [ ] 17.1 Implement `app/validation/completeness.py`: `CompletenessValidator.validate(draft: Draft) -> ValidationResult`; check that `PaymentDetails` contains non-`None`, non-empty `bank_account_number`, `bank_name`, and `payment_reference`; check each `LineItem` for missing `description`, `quantity`, `unit`, `unit_price`, or `line_total`; return a `ValidationResult` dataclass with a list of missing field names
     - _Requirements: 5.3, 6.1, 6.2, 6.3_
   - [ ]* 17.2 Write Hypothesis property test for **Property 6** (MISSING_EVIDENCE flag for any missing required field): for any extraction result missing one or more required fields, the `AMIGA_System` SHALL apply `MISSING_EVIDENCE` AND set status to `EXCEPTION`; the exception UX SHALL list each missing `Payment_Details` field by name
     - **Property 6: MISSING_EVIDENCE Applied for Any Missing Required Field**
     - **Validates: Requirements 4.6, 5.3, 6.1, 6.2, 6.3**
 
 - [ ] 18. Implement calculation validation
-  - [~] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
+  - [ ] 18.1 Implement `app/validation/calculation.py`: `CalculationValidator.validate(header: HeaderFields, line_items: list[LineItem], tolerance: Decimal) -> ValidationResult`; use Python `Decimal` (not `float`) for all arithmetic; compute `sum(Decimal(li.line_total) for li in line_items)` and compare against `Decimal(header.subtotal)`; compute `subtotal + tax + fees + rounding_adj` and compare against `Decimal(header.total_amount)`; return flagged fields with `computed` and `extracted` values for each discrepancy
     - _Requirements: 7.1, 7.2, 7.3_
   - [ ]* 18.2 Write pytest tests for `CalculationValidator`: exact tolerance boundary (no flag), just-over tolerance (flag), just-under tolerance (no flag), both checks discrepant (both fields flagged)
     - _Requirements: 7.1, 7.2_
@@ -176,9 +176,9 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 7.1, 7.2, 7.3**
 
 - [ ] 19. Implement duplicate detection
-  - [~] 19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)
+  - [ ] 19.1 Implement `app/validation/duplicate.py`: `DuplicateDetector.detect(request_id: UUID, vendor_name: str, invoice_number: str, db: AsyncSession) -> list[MatchResult]`; execute the async SQLAlchemy query with `func.lower()` for case-insensitive match on `vendor_name` and `invoice_number`, excluding `REJECTED`/`VOIDED` statuses, excluding the current `request_id`; if matches found, apply `POSSIBLE_DUPLICATE` flag and store match references (`request_id`, `status`, `invoice_date`, `total_amount`)
     - _Requirements: 8.1, 8.2, 8.3_
-  - [~] 19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`
+  - [ ] 19.2 Implement `POST /requests/{id}/dismiss-duplicate` FastAPI router (Finance Reviewer only): remove the `POSSIBLE_DUPLICATE` flag; write a `FLAG_DISMISSED` `AuditEvent`
     - _Requirements: 8.4_
   - [ ]* 19.3 Write pytest tests for `DuplicateDetector`: exact-match case-insensitive hit → flag applied, `REJECTED`/`VOIDED` excluded → no flag, no match → no flag
     - _Requirements: 8.1, 8.2_
@@ -187,36 +187,36 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 8.1, 8.2, 8.3**
 
 - [ ] 20. Wire validators into the extraction pipeline
-  - [~] 20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty
+  - [ ] 20.1 Implement `app/validation/engine.py`: `ValidationEngine.run(draft: Draft, db: AsyncSession) -> list[Flag]`; call `CompletenessValidator.validate`, `CalculationValidator.validate`, and `DuplicateDetector.detect` sequentially; aggregate all flags and return them; `READY_FOR_REVIEW` is only set when the returned flag list is empty
     - _Requirements: 4.2, 4.5, 6.2_
   - [ ]* 20.2 Write pytest integration tests: upload → extraction (all valid) → `READY_FOR_REVIEW`; upload → extraction (missing bank account) → `EXCEPTION` + `MISSING_EVIDENCE`; upload → extraction (total mismatch) → `EXCEPTION` + calc flag
     - _Requirements: 4.2, 6.2, 7.1_
 
-- [~] 21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.
+- [ ] 21. Checkpoint — Run all Phase 5 tests. Verify that a mock extraction with a missing payment field correctly transitions the Request to `EXCEPTION` with the `MISSING_EVIDENCE` flag and correct `AuditEvent`s. Ask the user if any questions arise.
 
 ---
 
 ### Phase 5.5: Indonesian Tax Assignment
 
 - [ ] 50. Implement tax assignment model and calculation engine
-  - [~] 50.1 Create `app/models/tax_assignment.py`: `IndonesianTaxType` Python `enum.Enum` with values `PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`; `TAX_RATES: dict[IndonesianTaxType, Decimal]` with values `{PPH21: Decimal("0.0500"), PPH22: Decimal("0.0150"), PPH23: Decimal("0.0200"), PPH25: Decimal("0.0200"), PPN: Decimal("0.1100"), NO_TAX: Decimal("0.0000")}`; `TaxAssignment` SQLAlchemy model with `unique` constraint on `line_item_id` (one assignment per item)
+  - [ ] 50.1 Create `app/models/tax_assignment.py`: `IndonesianTaxType` Python `enum.Enum` with values `PPH21, PPH22, PPH23, PPH25, PPN, NO_TAX`; `TAX_RATES: dict[IndonesianTaxType, Decimal]` with values `{PPH21: Decimal("0.0500"), PPH22: Decimal("0.0150"), PPH23: Decimal("0.0200"), PPH25: Decimal("0.0200"), PPN: Decimal("0.1100"), NO_TAX: Decimal("0.0000")}`; `TaxAssignment` SQLAlchemy model with `unique` constraint on `line_item_id` (one assignment per item)
     - _Requirements: 21.1, 21.2_
-  - [~] 50.2 Create `app/services/tax_service.py`: `compute_tax_amount(line_total: Decimal, tax_type: IndonesianTaxType) -> Decimal` using only `Decimal` multiplication (no `float`); `compute_tax_summary(tax_assignments: list[TaxAssignment], line_items: list[LineItem]) -> dict` returning `{"per_type": {tax_type: subtotal}, "total_tax": Decimal, "grand_total": Decimal}` where `grand_total = subtotal + total_tax`
+  - [ ] 50.2 Create `app/services/tax_service.py`: `compute_tax_amount(line_total: Decimal, tax_type: IndonesianTaxType) -> Decimal` using only `Decimal` multiplication (no `float`); `compute_tax_summary(tax_assignments: list[TaxAssignment], line_items: list[LineItem]) -> dict` returning `{"per_type": {tax_type: subtotal}, "total_tax": Decimal, "grand_total": Decimal}` where `grand_total = subtotal + total_tax`
     - _Requirements: 21.2, 21.3, 21.4_
-  - [~] 50.3 Implement `PUT /requests/{id}/line-items/{line_item_id}/tax` FastAPI endpoint (Finance Reviewer + active ClientAssignment, Request must be in `READY_FOR_REVIEW` or `EXCEPTION` status): accept `{ tax_type: str }`; validate `tax_type` is a valid `IndonesianTaxType`; compute `tax_amount = compute_tax_amount(Decimal(str(line_item.line_total)), tax_type)`; upsert the `TaxAssignment` row; write a `FIELD_REVISED` AuditEvent recording old and new tax type and computed amount; return `{ line_item_id, tax_type, tax_rate, tax_amount }` — reject with `409` if Request is `AMIGA_REVIEWED` or later (locked)
+  - [ ] 50.3 Implement `PUT /requests/{id}/line-items/{line_item_id}/tax` FastAPI endpoint (Finance Reviewer + active ClientAssignment, Request must be in `READY_FOR_REVIEW` or `EXCEPTION` status): accept `{ tax_type: str }`; validate `tax_type` is a valid `IndonesianTaxType`; compute `tax_amount = compute_tax_amount(Decimal(str(line_item.line_total)), tax_type)`; upsert the `TaxAssignment` row; write a `FIELD_REVISED` AuditEvent recording old and new tax type and computed amount; return `{ line_item_id, tax_type, tax_rate, tax_amount }` — reject with `409` if Request is `AMIGA_REVIEWED` or later (locked)
     - _Requirements: 21.1, 21.3, 21.5, 21.7_
-  - [~] 50.4 Implement `GET /requests/{id}/tax-summary` FastAPI endpoint (Finance Reviewer + active ClientAssignment): return `{ line_items: [{..., tax_type, tax_rate, tax_amount}], per_type_subtotals: {type: subtotal}, total_tax, grand_total }` computed via `tax_service.compute_tax_summary`; if Request is `AMIGA_REVIEWED` or later, mark as `locked: true` in the response
+  - [ ] 50.4 Implement `GET /requests/{id}/tax-summary` FastAPI endpoint (Finance Reviewer + active ClientAssignment): return `{ line_items: [{..., tax_type, tax_rate, tax_amount}], per_type_subtotals: {type: subtotal}, total_tax, grand_total }` computed via `tax_service.compute_tax_summary`; if Request is `AMIGA_REVIEWED` or later, mark as `locked: true` in the response
     - _Requirements: 21.4, 21.6, 21.7_
   - [ ]* 50.5 Write pytest unit tests for `tax_service`: for each of the 6 tax types verify `compute_tax_amount` returns exact `Decimal` result; verify `float` is never used; verify `compute_tax_summary` grand_total equals sum of per-type subtotals; verify a line_item with no assignment contributes 0 tax
     - _Requirements: 21.2, 21.3_
 
 - [ ] 51. Build `TaxAssignmentPanel` React component
-  - [~] 51.1 For each extracted `LineItem` in the review workspace, render a dropdown selector with options: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), No Tax; display the computed tax amount next to each selector, updating on selection via `PUT /requests/{id}/line-items/{lid}/tax`
+  - [ ] 51.1 For each extracted `LineItem` in the review workspace, render a dropdown selector with options: PPh 21 (5%), PPh 22 (1.5%), PPh 23 (2%), PPh 25 (2%), PPN (11%), No Tax; display the computed tax amount next to each selector, updating on selection via `PUT /requests/{id}/line-items/{lid}/tax`
     - _Requirements: 21.1, 21.3_
-  - [~] 51.2 Render a live tax summary section below the line items table: per-type subtotals and grand total fetched from `GET /requests/{id}/tax-summary`; disable all selectors if Request is locked (`AMIGA_REVIEWED` or later)
+  - [ ] 51.2 Render a live tax summary section below the line items table: per-type subtotals and grand total fetched from `GET /requests/{id}/tax-summary`; disable all selectors if Request is locked (`AMIGA_REVIEWED` or later)
     - _Requirements: 21.4, 21.6, 21.7_
 
-- [~] 52. Checkpoint — Assign tax types to all line items in a `READY_FOR_REVIEW` request; verify computed tax amounts, per-type subtotals, grand total, AuditEvents, and that selectors are disabled after approval. Ask the user if any questions arise.
+- [ ] 52. Checkpoint — Assign tax types to all line items in a `READY_FOR_REVIEW` request; verify computed tax amounts, per-type subtotals, grand total, AuditEvents, and that selectors are disabled after approval. Ask the user if any questions arise.
 
 ---
 
@@ -245,14 +245,14 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   - [x] 23.5 Write unit tests for `ReviewWorkspace`: renders AI label, unsaved-changes prompt fires on navigation, PDF load failure shows error + download link, field edit calls the update API
     - _Requirements: 4.2, 10.4, 10.5, 10.6_
 
-- [~] 24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.
+- [ ] 24. Checkpoint — Load the review workspace in the browser against a `READY_FOR_REVIEW` request; confirm two-panel layout, AI label, inline original-value display, and field save. Ask the user if any questions arise.
 
 ---
 
 ### Phase 7: Approval and Rejection Workflow
 
 - [ ] 25. Implement Finance Reviewer approval
-  - [~] 25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, "Self-approval is not permitted.")`; if any active EXCEPTION flag exists raise `HTTPException(409, "Unresolved exceptions must be addressed before this Request can be approved.")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, "You do not have authority to approve Requests.")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts
+  - [ ] 25.1 Implement `POST /requests/{id}/approve` FastAPI router (Finance Reviewer + active `ClientAssignment`): enforce SOD — if `request.uploader_id == current_user.user_id` raise `HTTPException(403, "Self-approval is not permitted.")`; if any active EXCEPTION flag exists raise `HTTPException(409, "Unresolved exceptions must be addressed before this Request can be approved.")`; if `current_user.role != FINANCE_REVIEWER` raise `HTTPException(403, "You do not have authority to approve Requests.")`; on success transition status to `AMIGA_REVIEWED`, persist an `APPROVED` `AuditEvent` with approver `user_id` + UTC timestamp; record `UNAUTHORIZED_APPROVAL_ATTEMPT` `AuditEvent` for `ROBOT_ADMIN` or `SYSTEM_ADMIN` role attempts
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 4.5_
   - [ ]* 25.2 Write pytest tests for approval: self-approval rejected, wrong role rejected, `EXCEPTION` status blocked, valid approval transitions to `AMIGA_REVIEWED`, `SYSTEM_ADMIN` attempt logged as `UNAUTHORIZED_APPROVAL_ATTEMPT`
     - _Requirements: 12.2, 12.3, 12.4, 12.5_
@@ -261,7 +261,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 12.1, 12.2, 12.3, 12.5, 4.5**
 
 - [ ] 26. Implement Finance Reviewer rejection
-  - [~] 26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint
+  - [ ] 26.1 Implement `POST /requests/{id}/reject` FastAPI router (Finance Reviewer + active `ClientAssignment`): validate `rejection_reason` length in [1, 500] using a Pydantic v2 `Field(min_length=1, max_length=500)` constraint — reject with `422` otherwise; enforce SOD (uploader ≠ reviewer); transition status to `REJECTED`; persist `REJECTED` `AuditEvent` with reason, reviewer `user_id`, and UTC timestamp; make the rejection reason visible to authorized `Client_PIC`s on the Request detail endpoint
     - _Requirements: 13.1, 13.2, 13.3, 13.4_
   - [ ]* 26.2 Write pytest tests for rejection: 0-char reason rejected, 501-char reason rejected, 1-char and 500-char reasons accepted, self-rejection rejected, valid rejection transitions to `REJECTED` with reason in `AuditEvent`
     - _Requirements: 13.1, 13.4_
@@ -269,24 +269,24 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 13: Rejection Enforces SOD and Reason Length**
     - **Validates: Requirements 13.1, 13.2, 13.3, 13.4**
 
-- [~] 27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.
+- [ ] 27. Checkpoint — Test approval and rejection flows end-to-end: attempt self-approval (should fail), attempt approval from wrong role (should fail), approve a `READY_FOR_REVIEW` request (should succeed), reject with valid and invalid reasons. Ask the user if any questions arise.
 
 ---
 
 ### Phase 8: Voucher Generation and Handover
 
 - [ ] 28. Implement Voucher Service — generation
-  - [~] 28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; load the active `VoucherTemplate` via `template_service.load_active_template(db)`; build Jinja2 context from approved `HeaderFields`, `LineItems` (with their `TaxAssignment` rows), `PaymentDetails`, `tax_service.compute_tax_summary()` result, and `settings.AUTHORIZATION_DISCLAIMER`; render HTML using `jinja2.Environment(loader=BaseLoader()).from_string(template.template_content).render(context)`; convert to PDF using `weasyprint.HTML(string=rendered_html).write_pdf()`; compute `disclaimer_hash = sha256(disclaimer_text.encode()).hexdigest()` and `template_hash = sha256(rendered_html.encode()).hexdigest()`; upload PDF bytes to S3 at `vouchers/{request_id}/{voucher_pdf_id}.pdf`; persist `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, `template_version`, `disclaimer_hash`, `template_hash`; write `VOUCHER_GENERATED` AuditEvent; record generation duration in `TelemetryRecord`; SLA is **5 seconds** (updated from 3s); if generation fails return `HTTPException(500)` and do NOT write AuditEvent or transition status
+  - [ ] 28.1 Implement `POST /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; load the active `VoucherTemplate` via `template_service.load_active_template(db)`; build Jinja2 context from approved `HeaderFields`, `LineItems` (with their `TaxAssignment` rows), `PaymentDetails`, `tax_service.compute_tax_summary()` result, and `settings.AUTHORIZATION_DISCLAIMER`; render HTML using `jinja2.Environment(loader=BaseLoader()).from_string(template.template_content).render(context)`; convert to PDF using `weasyprint.HTML(string=rendered_html).write_pdf()`; compute `disclaimer_hash = sha256(disclaimer_text.encode()).hexdigest()` and `template_hash = sha256(rendered_html.encode()).hexdigest()`; upload PDF bytes to S3 at `vouchers/{request_id}/{voucher_pdf_id}.pdf`; persist `VoucherPDF` record with `file_key`, `generated_by`, `generated_at`, `template_version`, `disclaimer_hash`, `template_hash`; write `VOUCHER_GENERATED` AuditEvent; record generation duration in `TelemetryRecord`; SLA is **5 seconds** (updated from 3s); if generation fails return `HTTPException(500)` and do NOT write AuditEvent or transition status
     - _Requirements: 15.1, 15.2, 15.4, 15.5, 15.6, 21.6, 22.3, 22.4, 22.5, 22.7, 22.8, 20.3, 20.6_
-  - [~] 28.2 Enforce status guard: if `request.status != AMIGA_REVIEWED`, return error stating the Request has not completed independent review
+  - [ ] 28.2 Enforce status guard: if `request.status != AMIGA_REVIEWED`, return error stating the Request has not completed independent review
     - _Requirements: 15.3_
   - [ ]* 28.3 Write pytest tests for PDF generation: non-`AMIGA_REVIEWED` status blocked, generation success creates `VoucherPDF` record + `AuditEvent`, generation failure leaves no `AuditEvent` and no status transition, disclaimer text present in output
     - _Requirements: 15.3, 15.5, 15.6_
 
 - [ ] 29. Implement voucher preview
-  - [~] 29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds
+  - [ ] 29.1 Implement `GET /requests/{id}/voucher-preview` FastAPI router (Finance Reviewer or Client_PIC + active `ClientAssignment`): return a Pydantic v2 response schema containing all approved `HeaderFields`, `LineItems`, `PaymentDetails`, and the `AUTHORIZATION_DISCLAIMER` text for the frontend to render as a read-only preview; respond within 3 seconds
     - _Requirements: 14.1, 14.2, 14.3_
-  - [~] 29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error
+  - [ ] 29.2 Build the `VoucherPreview` React component: render all approved fields and the disclaimer in a formatted, read-only layout; show an error message and retry button if the preview endpoint returns an error
     - _Requirements: 14.2, 14.4_
   - [ ]* 29.3 Write unit tests for `VoucherPreview` component: renders disclaimer, displays all approved fields, shows error + retry on API failure
     - _Requirements: 14.2, 14.4_
@@ -295,9 +295,9 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 14.2, 15.2, 15.4**
 
 - [ ] 30. Implement voucher download and SENT_TO_CLIENT transition
-  - [~] 30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type="application/pdf")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded
+  - [ ] 30.1 Implement `GET /requests/{id}/voucher-pdf` FastAPI router (`Client_PIC` + active `ClientAssignment`): verify `request.status == AMIGA_REVIEWED`; fetch PDF bytes from `S3FileStore`; idempotency check — if no prior `SENT_TO_CLIENT` `AuditEvent` exists, write `VOUCHER_DOWNLOADED` and `STATUS_CHANGED (AMIGA_REVIEWED → SENT_TO_CLIENT)` `AuditEvent`s, then transition Request status to `SENT_TO_CLIENT`; stream PDF bytes using FastAPI `StreamingResponse(content=iter([pdf_bytes]), media_type="application/pdf")`; display `SENT_TO_CLIENT` UTC timestamp on the Request detail screen once recorded
     - _Requirements: 16.1, 16.2, 16.5_
-  - [~] 30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available
+  - [ ] 30.2 Enforce authorization guards: no active `ClientAssignment` → `HTTPException(403)` with no client data; `status != AMIGA_REVIEWED` → error stating voucher not yet available
     - _Requirements: 16.3, 16.4_
   - [ ]* 30.3 Write pytest tests for download: status ≠ `AMIGA_REVIEWED` blocked, missing assignment blocked, first download triggers `SENT_TO_CLIENT` transition, second download does NOT create a duplicate `SENT_TO_CLIENT` event (idempotency)
     - _Requirements: 16.1, 16.2, 16.3, 16.4_
@@ -305,21 +305,21 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 15: Download Gated on Status; Exactly One SENT_TO_CLIENT Event**
     - **Validates: Requirements 15.3, 16.1, 16.2, 16.3, 16.4**
 
-- [~] 31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.
+- [ ] 31. Checkpoint — Full handover flow: approve a request, generate PDF, download it twice, verify exactly one `SENT_TO_CLIENT` event and `status = SENT_TO_CLIENT`. Ask the user if any questions arise.
 
 ---
 
 ### Phase 9: Queue Dashboard and Exception UX
 
 - [ ] 32. Implement queue dashboard API
-  - [~] 32.1 Implement `GET /requests` FastAPI router with role-based and assignment-based filtering via `Depends(get_current_user)`:
+  - [ ] 32.1 Implement `GET /requests` FastAPI router with role-based and assignment-based filtering via `Depends(get_current_user)`:
     - Finance_Reviewer: statuses `{READY_FOR_REVIEW, EXCEPTION, AMIGA_REVIEWED}` for the user's assigned clients
     - Client_PIC: statuses `{AMIGA_REVIEWED, SENT_TO_CLIENT}` for the user's assigned clients
     - Service_Lead: all statuses for the user's assigned clients
     - Return Pydantic response schema with at minimum: `request_id`, `client_name`, `vendor_name`, `status`, `created_at`
     - Query must resolve within 2 seconds for up to 500 results
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
-  - [~] 32.2 Implement `POST /requests/{id}/reallocate` FastAPI router (Service Lead only): update `assigned_reviewer`; write a `REALLOCATED` `AuditEvent` with actor `user_id`, previous reviewer `user_id`, new reviewer `user_id`, and UTC timestamp
+  - [ ] 32.2 Implement `POST /requests/{id}/reallocate` FastAPI router (Service Lead only): update `assigned_reviewer`; write a `REALLOCATED` `AuditEvent` with actor `user_id`, previous reviewer `user_id`, new reviewer `user_id`, and UTC timestamp
     - _Requirements: 3.7_
   - [ ]* 32.3 Write pytest tests for queue dashboard: Finance_Reviewer only sees permitted statuses and own-client requests, Client_PIC filtered correctly, Service_Lead sees all statuses, non-assigned client request excluded
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
@@ -328,9 +328,9 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.6**
 
 - [ ] 33. Implement Exception UX
-  - [~] 33.1 Implement the exception detail API — extend `GET /requests/{id}` to include in the Pydantic response: all active flags, per-flag details (`MISSING_EVIDENCE`: list of missing field names; `POSSIBLE_DUPLICATE`: matching request summaries with `request_id`/`status`/`invoice_date`/`total_amount`; calculation discrepancy: flagged field name + computed + extracted values)
+  - [ ] 33.1 Implement the exception detail API — extend `GET /requests/{id}` to include in the Pydantic response: all active flags, per-flag details (`MISSING_EVIDENCE`: list of missing field names; `POSSIBLE_DUPLICATE`: matching request summaries with `request_id`/`status`/`invoice_date`/`total_amount`; calculation discrepancy: flagged field name + computed + extracted values)
     - _Requirements: 6.3, 7.3, 8.3, 9.1, 9.2_
-  - [~] 33.2 Build the `ExceptionPanel` React component: display all active flags with visual distinction (color/icon) and the flag identifier label; per-flag next-action instructions (supply missing field / compare matching request / correct inconsistent value); prevent approval action while EXCEPTION flags are active (hide/disable approve button)
+  - [ ] 33.2 Build the `ExceptionPanel` React component: display all active flags with visual distinction (color/icon) and the flag identifier label; per-flag next-action instructions (supply missing field / compare matching request / correct inconsistent value); prevent approval action while EXCEPTION flags are active (hide/disable approve button)
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
   - [ ]* 33.3 Write unit tests for `ExceptionPanel`: renders all flag types, correct per-flag instruction shown, approve button absent in `EXCEPTION` status
     - _Requirements: 9.1, 9.3, 9.4_
@@ -339,7 +339,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 9.1, 9.3**
 
 - [ ] 34. Build queue dashboard React UI
-  - [~] 34.1 Build the `QueueDashboard` component: fetch `GET /requests`, display the filtered list in a table with columns for `request_id`, client name, vendor name, status, and submission timestamp; link each row to the appropriate detail screen (`ReviewWorkspace`, `VoucherPreview`, or read-only detail depending on status); measure and report page load time to `POST /telemetry/page-load` with `page = QUEUE_DASHBOARD`
+  - [ ] 34.1 Build the `QueueDashboard` component: fetch `GET /requests`, display the filtered list in a table with columns for `request_id`, client name, vendor name, status, and submission timestamp; link each row to the appropriate detail screen (`ReviewWorkspace`, `VoucherPreview`, or read-only detail depending on status); measure and report page load time to `POST /telemetry/page-load` with `page = QUEUE_DASHBOARD`
     - _Requirements: 3.5, 3.6, 20.2, 20.7_
   - [ ]* 34.2 Write unit tests for `QueueDashboard`: renders correct columns, navigation to correct detail screen per status, page load telemetry called
     - _Requirements: 3.6, 20.2_
@@ -347,46 +347,46 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Property 10: AI Draft Label Always Visible After Extraction**
     - **Validates: Requirements 4.2, 4.5**
 
-- [~] 35. Checkpoint — Browse the queue dashboard as each role; verify correct status filtering and client isolation. Open an EXCEPTION request and confirm all flag types and instructions render. Ask the user if any questions arise.
+- [ ] 35. Checkpoint — Browse the queue dashboard as each role; verify correct status filtering and client isolation. Open an EXCEPTION request and confirm all flag types and instructions render. Ask the user if any questions arise.
 
 ---
 
 ### Phase 10: Audit Timeline
 
 - [ ] 36. Implement Audit Service — read API
-  - [~] 36.1 Implement `GET /requests/{id}/audit` FastAPI router (Finance Reviewer, Service Lead, System Admin + active `ClientAssignment`): async SQLAlchemy query joining `AuditEvent` and `FieldRevision` for the given `request_id`; merge and sort by `occurred_at` / `revised_at` ascending; return combined timeline within 3 seconds; include for each event: `event_type`, `actor_id`, `payload`, UTC timestamp; include for each revision: `field_path`, `old_value`, `new_value`, `actor_id`, UTC timestamp
+  - [ ] 36.1 Implement `GET /requests/{id}/audit` FastAPI router (Finance Reviewer, Service Lead, System Admin + active `ClientAssignment`): async SQLAlchemy query joining `AuditEvent` and `FieldRevision` for the given `request_id`; merge and sort by `occurred_at` / `revised_at` ascending; return combined timeline within 3 seconds; include for each event: `event_type`, `actor_id`, `payload`, UTC timestamp; include for each revision: `field_path`, `old_value`, `new_value`, `actor_id`, UTC timestamp
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5_
   - [ ]* 36.2 Write pytest tests for audit read API: Finance_Reviewer can access, Client_PIC cannot, events and revisions in correct chronological order, response includes all required fields
     - _Requirements: 17.3, 17.4, 17.5_
 
 - [ ] 37. Implement Audit Timeline React UI
-  - [~] 37.1 Build the `AuditTimeline` component accessible from the Request detail screen for Finance_Reviewers, Service_Leads, and System_Admins: render each event and revision in chronological order with event type, actor identity, UTC timestamp, and payload details; display field revisions with old/new value side by side; the component must be read-only
+  - [ ] 37.1 Build the `AuditTimeline` component accessible from the Request detail screen for Finance_Reviewers, Service_Leads, and System_Admins: render each event and revision in chronological order with event type, actor identity, UTC timestamp, and payload details; display field revisions with old/new value side by side; the component must be read-only
     - _Requirements: 17.2, 17.3, 17.5_
   - [ ]* 37.2 Write unit tests for `AuditTimeline`: renders events in order, displays revision old/new values, no edit controls present
     - _Requirements: 17.3, 17.5_
 
 - [ ] 38. Enforce 7-year retention policy
-  - [~] 38.1 Write an Alembic migration that adds a table-level `RULE` or DDL trigger preventing `DELETE` on `AuditEvent` and `FieldRevision` rows with `occurred_at` / `revised_at` within 7 years of current date; document the cold-storage archival strategy in a `docs/audit-retention.md` file (no code execution required beyond the migration)
+  - [ ] 38.1 Write an Alembic migration that adds a table-level `RULE` or DDL trigger preventing `DELETE` on `AuditEvent` and `FieldRevision` rows with `occurred_at` / `revised_at` within 7 years of current date; document the cold-storage archival strategy in a `docs/audit-retention.md` file (no code execution required beyond the migration)
     - _Requirements: 17.1_
 
-- [~] 39. Checkpoint — Submit a full workflow (upload → review → edit fields → approve → download); view the Audit Timeline and verify every event appears in correct chronological order. Ask the user if any questions arise.
+- [ ] 39. Checkpoint — Submit a full workflow (upload → review → edit fields → approve → download); view the Audit Timeline and verify every event appears in correct chronological order. Ask the user if any questions arise.
 
 ---
 
 ### Phase 11: Telemetry
 
 - [ ] 40. Implement Telemetry Service — ingestion
-  - [~] 40.1 Implement `POST /telemetry/page-load` FastAPI internal router: accept Pydantic body `{ page: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PAGE_LOAD_DURATION`; if `duration_ms > 2000` (for queue dashboard or review workspace), also persist a breach event with `is_breach = True`
+  - [ ] 40.1 Implement `POST /telemetry/page-load` FastAPI internal router: accept Pydantic body `{ page: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PAGE_LOAD_DURATION`; if `duration_ms > 2000` (for queue dashboard or review workspace), also persist a breach event with `is_breach = True`
     - _Requirements: 20.2, 20.7_
-  - [~] 40.2 Implement `POST /telemetry/pdf-generation` FastAPI internal router (called by Voucher Service): accept Pydantic body `{ job_id: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PDF_GENERATION_DURATION`; if `duration_ms > 3000`, persist a breach event
+  - [ ] 40.2 Implement `POST /telemetry/pdf-generation` FastAPI internal router (called by Voucher Service): accept Pydantic body `{ job_id: str, duration_ms: int }`; persist a `TelemetryRecord` with `metric_type = PDF_GENERATION_DURATION`; if `duration_ms > 3000`, persist a breach event
     - _Requirements: 20.3, 20.6_
   - [ ]* 40.3 Write pytest tests for telemetry ingestion: under-threshold → no breach record, over-threshold → breach record with correct fields
     - _Requirements: 20.6, 20.7_
 
 - [ ] 41. Implement Telemetry Service — aggregated metrics dashboard API
-  - [~] 41.1 Implement `GET /telemetry/metrics` FastAPI router (Service Lead, System Admin only): use SQLAlchemy async queries with `percentile_cont` or in-Python computation to derive p50, p90, p99 durations, total measurement count, breach count, and `breach_rate = (breach_count / total_count * 100)` per `metric_type` from `TelemetryRecord`; cache aggregations and refresh at intervals ≤ 60 seconds (e.g., store last-computed result and `computed_at`; recompute only if `> 60s` old); return aggregated result
+  - [ ] 41.1 Implement `GET /telemetry/metrics` FastAPI router (Service Lead, System Admin only): use SQLAlchemy async queries with `percentile_cont` or in-Python computation to derive p50, p90, p99 durations, total measurement count, breach count, and `breach_rate = (breach_count / total_count * 100)` per `metric_type` from `TelemetryRecord`; cache aggregations and refresh at intervals ≤ 60 seconds (e.g., store last-computed result and `computed_at`; recompute only if `> 60s` old); return aggregated result
     - _Requirements: 20.8_
-  - [~] 41.2 Implement `GET /telemetry/breaches` FastAPI router (Service Lead, System Admin only): return `TelemetryRecord` rows where `is_breach = True`, ordered by `measured_at` descending
+  - [ ] 41.2 Implement `GET /telemetry/breaches` FastAPI router (Service Lead, System Admin only): return `TelemetryRecord` rows where `is_breach = True`, ordered by `measured_at` descending
     - _Requirements: 20.4, 20.5, 20.6, 20.7_
   - [ ]* 41.3 Write pytest tests for metrics API: `p50 ≤ p90 ≤ p99`, `breach_rate` calculation correct, refresh interval guard
     - _Requirements: 20.8_
@@ -395,19 +395,19 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - **Validates: Requirements 20.1, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8**
 
 - [ ] 42. Build Telemetry Dashboard React UI
-  - [~] 42.1 Build the `TelemetryDashboard` component (Service Lead and System Admin only): display per-metric-type cards showing p50/p90/p99, total count, breach count, and breach rate; auto-refresh every 60 seconds; fetch from `GET /telemetry/metrics`
+  - [ ] 42.1 Build the `TelemetryDashboard` component (Service Lead and System Admin only): display per-metric-type cards showing p50/p90/p99, total count, breach count, and breach rate; auto-refresh every 60 seconds; fetch from `GET /telemetry/metrics`
     - _Requirements: 20.8_
   - [ ]* 42.2 Write unit tests for `TelemetryDashboard`: displays all metric types, auto-refresh fires at ≤ 60 s interval, unauthorized role sees 403
     - _Requirements: 20.8_
 
-- [~] 43. Checkpoint — Run several mock operations (fast extraction, slow extraction, fast PDF, slow PDF, fast page load, slow page load); check the telemetry dashboard shows correct p50/p90/p99 and breach records. Ask the user if any questions arise.
+- [ ] 43. Checkpoint — Run several mock operations (fast extraction, slow extraction, fast PDF, slow PDF, fast page load, slow page load); check the telemetry dashboard shows correct p50/p90/p99 and breach records. Ask the user if any questions arise.
 
 ---
 
 ### Phase 12: Property-Based Tests
 
 - [ ] 44. Set up the property-based testing framework
-  - [~] 44.1 Add `hypothesis` (with `hypothesis[numpy]` if needed) to `pyproject.toml` dev dependencies (`[project.optional-dependencies]` or `[tool.pytest.ini_options]`); create `backend/tests/pbt/` directory with `__init__.py` and `conftest.py` (async test setup with `pytest-asyncio`); configure Hypothesis settings in `conftest.py`: `settings.register_profile("ci", max_examples=100)`; activate profile in `conftest.py` with `settings.load_profile("ci")`; add `pytest` ini config to discover `tests/pbt/` automatically
+  - [ ] 44.1 Add `hypothesis` (with `hypothesis[numpy]` if needed) to `pyproject.toml` dev dependencies (`[project.optional-dependencies]` or `[tool.pytest.ini_options]`); create `backend/tests/pbt/` directory with `__init__.py` and `conftest.py` (async test setup with `pytest-asyncio`); configure Hypothesis settings in `conftest.py`: `settings.register_profile("ci", max_examples=100)`; activate profile in `conftest.py` with `settings.load_profile("ci")`; add `pytest` ini config to discover `tests/pbt/` automatically
     - _Requirements: all PBT properties_
 
 - [ ] 45. Write remaining standalone property tests
@@ -430,7 +430,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
     - Property 16 (client isolation): `tests/pbt/test_property_16_client_isolation.py` — _Requirements: 18.1–18.4_
     - Property 17 (telemetry SLA): `tests/pbt/test_property_17_telemetry.py` — _Requirements: 20.1, 20.3–20.8_
 
-- [~] 46. Checkpoint — Run `pytest backend/tests/pbt/ -v` and confirm all 17 Hypothesis property tests pass with ≥ 100 examples each. Ask the user if any questions arise.
+- [ ] 46. Checkpoint — Run `pytest backend/tests/pbt/ -v` and confirm all 17 Hypothesis property tests pass with ≥ 100 examples each. Ask the user if any questions arise.
 
 ---
 
@@ -452,7 +452,7 @@ The backend lives under `backend/` and the frontend under `frontend/`. Infrastru
   - [ ]* 48.2 Write a locust or pytest-benchmark performance test that measures Voucher PDF generation time end-to-end (Jinja2 render + WeasyPrint conversion + S3 upload); assert p95 ≤ 5 000 ms
     - _Requirements: 15.1_
 
-- [~] 49. Final checkpoint — Run the full test suite (`pytest backend/`, `pytest backend/tests/pbt/`, integration tests, performance tests); all required tasks pass. Review any remaining optional tasks with the user and decide whether to include them in the MVP. Ask the user if any questions arise.
+- [ ] 49. Final checkpoint — Run the full test suite (`pytest backend/`, `pytest backend/tests/pbt/`, integration tests, performance tests); all required tasks pass. Review any remaining optional tasks with the user and decide whether to include them in the MVP. Ask the user if any questions arise.
 
 ---
 
