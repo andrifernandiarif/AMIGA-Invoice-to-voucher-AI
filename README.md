@@ -48,6 +48,14 @@ Acceptance generates and stores a PDF using the active template in the approval 
 
 System Admins can use the **Voucher templates** screen to import/edit HTML and activate a new named version. Template changes affect future approvals; generated vouchers preserve their original PDF and template version. `GET /admin/templates` lists versions and the bundled default; `POST /admin/templates` saves and activates a version.
 
+## Voucher layout
+
+The active Indonesian voucher contains Nomor, Nama, Peruntukan, Tanggal/Periode, and Nominal; an item table with NO, TANGGAL, KETERANGAN, JUMLAH, HARGA, and TOTAL; and blank Diajukan Oleh / Disetujui Oleh signature, name, and role lines. The PDF contains no AI notices or generated-by footer.
+
+Reviewers can edit voucher number/name/purpose/period and each item's date before accepting the request. A blank voucher number uses a stable request-based number; Nama defaults to the vendor and Tanggal/Periode to the invoice date or request date. Purpose and individual item dates remain blank unless entered. Nominal uses the reviewed invoice total, and the bottom table total sums the reviewed line amounts. Amounts use Indonesian separators.
+
+The preview displays the actual PDF using `GET /requests/{request_id}/voucher-pdf?preview=true`, which does not record a client delivery. Authorized regeneration uses `POST /requests/{request_id}/voucher-pdf?regenerate=true`, preserves previous PDFs, and keeps the approval/delivery state unchanged. Template changes normally affect future vouchers; existing vouchers can be regenerated explicitly.
+
 ## Updating an already running workspace
 
 Run `alembic upgrade head` from `backend` after updating the code. Migration `0004` restores evidence metadata for older uploads from their audit history and moves successfully extracted legacy exception drafts into manual review. Original S3 files and audit events are retained; requests without a successfully extracted draft remain processing failures.

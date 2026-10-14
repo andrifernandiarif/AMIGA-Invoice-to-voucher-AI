@@ -122,6 +122,7 @@ async def _run_extraction(job: ExtractionJob) -> None:
                     line_item_id=uuid.uuid4(),
                     draft_id=draft.draft_id,
                     sequence_number=li.sequence_number,
+                    item_date=li.item_date,
                     description=li.description,
                     quantity=li.quantity,
                     unit=li.unit,

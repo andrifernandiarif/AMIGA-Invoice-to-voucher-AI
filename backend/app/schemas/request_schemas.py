@@ -36,6 +36,10 @@ class RequestSummary(BaseModel):
 class HeaderFieldsResponse(BaseModel):
     header_id: Optional[uuid.UUID] = None
     draft_id: Optional[uuid.UUID] = None
+    voucher_number: Optional[str] = None
+    voucher_name: Optional[str] = None
+    voucher_purpose: Optional[str] = None
+    voucher_period: Optional[str] = None
     vendor_name: Optional[str] = None
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
@@ -53,6 +57,7 @@ class LineItemResponse(BaseModel):
     line_item_id: uuid.UUID
     draft_id: uuid.UUID
     sequence_number: int
+    item_date: Optional[str] = None
     description: Optional[str] = None
     quantity: Optional[str] = None
     unit: Optional[str] = None

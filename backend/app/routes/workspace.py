@@ -111,13 +111,13 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
             "header_fields": fields(
                 header,
                 "vendor_name invoice_number invoice_date currency subtotal total_amount "
-                "tax_amount fee_amount rounding_adj",
+                "tax_amount fee_amount rounding_adj voucher_number voucher_name voucher_purpose voucher_period",
             )
             if header
             else None,
             "line_items": [
                 {
-                    **fields(i, "line_item_id draft_id description quantity unit unit_price line_total"),
+                    **fields(i, "line_item_id draft_id item_date description quantity unit unit_price line_total"),
                     "sequence_number": i.sequence_number,
                 }
                 for i in items
@@ -176,10 +176,10 @@ async def edit(
         "header": (
             HeaderFields,
             "vendor_name invoice_number invoice_date currency subtotal total_amount "
-            "tax_amount fee_amount rounding_adj",
+            "tax_amount fee_amount rounding_adj voucher_number voucher_name voucher_purpose voucher_period",
         ),
         "payment": (PaymentDetails, "bank_account_number bank_name payment_reference"),
-        "line_items": (LineItem, "description quantity unit unit_price line_total"),
+        "line_items": (LineItem, "item_date description quantity unit unit_price line_total"),
     }
     if parts[0] not in allowed or len(parts) != (3 if parts[0] == "line_items" else 2):
         raise HTTPException(422, "Invalid field path.")
@@ -200,7 +200,7 @@ async def edit(
         db.add(obj)
     value = body.new_value or None
     try:
-        if value is not None and name == "invoice_date":
+        if value is not None and name in ("invoice_date", "item_date"):
             value = date.fromisoformat(value)
         elif (
             value is not None

@@ -158,12 +158,14 @@ export default function TemplateEditor() {
               future approvals. Existing vouchers keep their original PDF.
             </p>
             <p>
-              Required fields: <code>{"{{ vendor_name }}"}</code>,{" "}
-              <code>{"{{ invoice_number }}"}</code>,{" "}
-              <code>line_items_table</code>, and{" "}
-              <code>{"{{ authorization_disclaimer }}"}</code>. The bundled
-              template includes examples for line items, totals and payment
-              details.
+              Header fields: <code>{"{{ voucher_number }}"}</code>,{" "}
+              <code>{"{{ voucher_name }}"}</code>,{" "}
+              <code>{"{{ voucher_purpose }}"}</code>,{" "}
+              <code>{"{{ voucher_period }}"}</code>, and{" "}
+              <code>{"{{ voucher_nominal }}"}</code>. Use{" "}
+              <code>line_items_table</code> for the item table and{" "}
+              <code>{"{{ voucher_line_total }}"}</code> for its total. Signature
+              blocks should stay blank.
             </p>
           </div>
           <label>

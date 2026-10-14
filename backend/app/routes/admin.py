@@ -14,7 +14,15 @@ from app.models.voucher import VoucherTemplate
 from app.services.template_service import _DEFAULT_TEMPLATE_PATH
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-_REQUIRED_FIELDS = {"vendor_name", "invoice_number", "line_items_table", "authorization_disclaimer"}
+_REQUIRED_FIELDS = {
+    "voucher_number",
+    "voucher_name",
+    "voucher_purpose",
+    "voucher_period",
+    "voucher_nominal",
+    "line_items_table",
+}
+_LEGACY_FIELDS = {"vendor_name", "invoice_number", "line_items_table", "authorization_disclaimer"}
 
 
 @router.get("/templates")
@@ -53,7 +61,7 @@ async def create_template(
     except TemplateSyntaxError as exc:
         raise HTTPException(422, f"Invalid template syntax at line {exc.lineno}: {exc.message}")
     missing = _REQUIRED_FIELDS - variables
-    if missing:
+    if missing and not _LEGACY_FIELDS.issubset(variables):
         raise HTTPException(422, f"Template is missing required fields: {', '.join(sorted(missing))}")
     existing = await db.scalar(select(VoucherTemplate).where(VoucherTemplate.version == version))
     if existing:

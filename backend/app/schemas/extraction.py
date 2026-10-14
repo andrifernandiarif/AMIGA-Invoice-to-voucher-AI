@@ -26,6 +26,7 @@ class HeaderFieldsSchema(BaseModel):
 
 class LineItemSchema(BaseModel):
     sequence_number: int = Field(..., ge=1)
+    item_date: date | None = None
     description: str | None = None
     quantity: Decimal | None = None
     unit: str | None = None

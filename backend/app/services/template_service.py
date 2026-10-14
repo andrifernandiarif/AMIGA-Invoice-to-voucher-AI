@@ -33,7 +33,7 @@ async def load_active_template(db: AsyncSession) -> VoucherTemplate:
 
 async def seed_default_template(db: AsyncSession) -> None:
     """
-    Idempotent: inserts the bundled voucher_default.html as version='v1.0'
+    Idempotent: inserts the bundled voucher_default.html as version='v2.0-id'
     with is_active=True only if no active template already exists.
     """
     result = await db.execute(
@@ -46,7 +46,7 @@ async def seed_default_template(db: AsyncSession) -> None:
     content = _DEFAULT_TEMPLATE_PATH.read_text(encoding="utf-8")
     template = VoucherTemplate(
         template_id=uuid.uuid4(),
-        version="v1.0",
+        version="v2.0-id",
         template_content=content,
         is_active=True,
         created_by=None,

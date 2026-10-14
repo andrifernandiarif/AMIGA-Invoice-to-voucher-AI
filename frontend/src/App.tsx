@@ -20,7 +20,7 @@ import {
   User,
 } from "./api";
 import TemplateEditor from "./components/TemplateEditor";
-import VoucherPreview from "./components/VoucherPreview";
+import VoucherDocument from "./components/VoucherDocument";
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
@@ -814,7 +814,11 @@ function RequestView({ user }: { user: User }) {
           onChange={(e) =>
             setChanges((prev) => ({ ...prev, [path]: e.target.value }))
           }
-          type={path.endsWith("invoice_date") ? "date" : "text"}
+          type={
+            path.endsWith("invoice_date") || path.endsWith("item_date")
+              ? "date"
+              : "text"
+          }
         />
         {changes[path] !== undefined && (
           <small className="original-value">
@@ -1084,7 +1088,29 @@ function RequestView({ user }: { user: User }) {
                           fee_amount: null,
                           rounding_adj: null,
                         },
-                      ).map(([k, v]) => field(`header.${k}`, v, label(k)))}
+                      )
+                        .filter(([k]) => !k.startsWith("voucher_"))
+                        .map(([k, v]) => field(`header.${k}`, v, label(k)))}
+                    </div>
+                    <h3 className="section-title">Voucher information</h3>
+                    <p className="muted voucher-help">
+                      Nominal uses the reviewed total amount. Leave Nomor blank
+                      to generate a voucher number; Nama defaults to the vendor,
+                      and Tanggal/Periode to the invoice date.
+                    </p>
+                    <div className="form-grid">
+                      {[
+                        ["voucher_number", "Nomor"],
+                        ["voucher_name", "Nama"],
+                        ["voucher_purpose", "Peruntukan"],
+                        ["voucher_period", "Tanggal/Periode"],
+                      ].map(([key, name]) =>
+                        field(
+                          `header.${key}`,
+                          data.draft?.header_fields?.[key] ?? null,
+                          name,
+                        ),
+                      )}
                     </div>
                     <h3 className="section-title">Line items</h3>
                     {data.draft.line_items.map((item, i) => (
@@ -1092,13 +1118,18 @@ function RequestView({ user }: { user: User }) {
                         <strong>Item {i + 1}</strong>
                         <div className="form-grid">
                           {[
+                            "item_date",
                             "description",
                             "quantity",
                             "unit",
                             "unit_price",
                             "line_total",
                           ].map((k) =>
-                            field(`line_items.${i}.${k}`, item[k], label(k)),
+                            field(
+                              `line_items.${i}.${k}`,
+                              item[k] ?? null,
+                              k === "item_date" ? "Tanggal" : label(k),
+                            ),
                           )}
                         </div>
                       </div>
@@ -1127,7 +1158,7 @@ function RequestView({ user }: { user: User }) {
           {tab === "voucher" &&
             (["AMIGA_REVIEWED", "SENT_TO_CLIENT"].includes(data.status) ? (
               <section className="card">
-                <VoucherPreview requestId={requestId!} />
+                <VoucherDocument requestId={requestId!} />
               </section>
             ) : (
               <section className="card empty-state">

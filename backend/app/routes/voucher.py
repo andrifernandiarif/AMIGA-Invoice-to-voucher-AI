@@ -22,7 +22,6 @@ import time
 import types
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 
 import jinja2
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -50,7 +49,7 @@ from app.schemas.voucher_schemas import (
 )
 from app.services.audit_service import log_event
 from app.services.pdf_service import render_html_pdf
-from app.services.tax_service import compute_tax_summary
+from app.services.voucher_context import build_voucher_context
 from app.services.template_service import load_active_template, seed_default_template
 from app.storage import StorageError, file_store
 
@@ -211,6 +210,7 @@ async def generate_voucher_pdf(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
+    regenerate: bool = False,
 ) -> dict:
     """
     Full pipeline:
@@ -235,7 +235,7 @@ async def generate_voucher_pdf(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
 
     # ── 1. Status guard (Req 15.3) ────────────────────────────────────────────
-    if req.status != RequestStatus.AMIGA_REVIEWED:
+    if req.status != RequestStatus.AMIGA_REVIEWED and not (regenerate and req.status == RequestStatus.SENT_TO_CLIENT):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="This Request has not completed the required independent review.",
@@ -257,7 +257,7 @@ async def generate_voucher_pdf(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if existing:
+    if existing and not regenerate:
         return {
             "voucher_pdf_id": str(existing.voucher_pdf_id),
             "file_key": existing.file_key,
@@ -299,58 +299,7 @@ async def generate_voucher_pdf(
     # ── 5. Build Jinja2 context ───────────────────────────────────────────────
     disclaimer_text = settings.AUTHORIZATION_DISCLAIMER
 
-    # Header fields (safe defaults if None)
-    h = header
-    header_subtotal = Decimal(str(h.subtotal)) if (h and h.subtotal is not None) else Decimal("0")
-
-    # Line items table: list of dicts
-    line_items_table = []
-    for item in line_items:
-        ta = tax_map.get(str(item.line_item_id))
-        line_items_table.append(
-            {
-                "description": item.description or "",
-                "quantity": str(item.quantity) if item.quantity is not None else "",
-                "unit": item.unit or "",
-                "unit_price": str(item.unit_price) if item.unit_price is not None else "",
-                "line_total": str(item.line_total) if item.line_total is not None else "",
-                "tax_type": (ta.tax_type.value if hasattr(ta.tax_type, "value") else str(ta.tax_type))
-                if ta
-                else "NO_TAX",
-                "tax_amount": str(ta.tax_amount) if (ta and ta.tax_amount is not None) else "0",
-            }
-        )
-
-    # Tax summary
-    tax_result = compute_tax_summary(line_items, tax_map, header_subtotal)
-    tax_summary_table = [
-        {"tax_type": row["tax_type"], "subtotal": str(row["subtotal"])} for row in tax_result["per_type_subtotals"]
-    ]
-
-    context = {
-        # Header fields
-        "vendor_name": h.vendor_name or "" if h else "",
-        "invoice_number": h.invoice_number or "" if h else "",
-        "invoice_date": str(h.invoice_date) if (h and h.invoice_date) else "",
-        "currency": h.currency or "" if h else "",
-        "subtotal": str(header_subtotal),
-        "total_amount": str(h.total_amount) if (h and h.total_amount is not None) else "",
-        "tax_amount": str(h.tax_amount) if (h and h.tax_amount is not None) else "",
-        "fee_amount": str(h.fee_amount) if (h and h.fee_amount is not None) else "",
-        "rounding_adj": str(h.rounding_adj) if (h and h.rounding_adj is not None) else "",
-        # Line items
-        "line_items_table": line_items_table,
-        # Tax summary
-        "tax_summary_table": tax_summary_table,
-        "total_tax": str(h.tax_amount if h and h.tax_amount is not None else tax_result["total_tax"]),
-        "grand_total": str(h.total_amount if h and h.total_amount is not None else tax_result["grand_total"]),
-        # Payment details
-        "bank_account_number": (payment.bank_account_number or "") if payment else "",
-        "bank_name": (payment.bank_name or "") if payment else "",
-        "payment_reference": (payment.payment_reference or "") if payment else "",
-        # Disclaimer
-        "authorization_disclaimer": disclaimer_text,
-    }
+    context = build_voucher_context(req, header, line_items, payment, tax_map, disclaimer_text)
 
     # ── Start timer (after data load, before render + PDF) ───────────────────
     start_ms = int(time.monotonic() * 1000)
@@ -462,6 +411,7 @@ async def download_voucher_pdf(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
+    preview: bool = False,
 ) -> StreamingResponse:
     """
     Download the generated Voucher PDF; a Client PIC download records delivery.
@@ -542,7 +492,7 @@ async def download_voucher_pdf(
     )
     already_sent = existing_event_result.scalar_one_or_none() is not None
 
-    if not already_sent and current_user.role.value == "CLIENT_PIC":
+    if not preview and not already_sent and current_user.role.value == "CLIENT_PIC":
         # ── 5. Write VOUCHER_DOWNLOADED audit event (Req 16.1) ────────────────
         downloaded_at = datetime.now(timezone.utc)
         await log_event(
@@ -581,6 +531,6 @@ async def download_voucher_pdf(
         content=iter([pdf_bytes]),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="voucher_{request_id}.pdf"',
+            "Content-Disposition": f'{"inline" if preview else "attachment"}; filename="voucher_{request_id}.pdf"',
         },
     )

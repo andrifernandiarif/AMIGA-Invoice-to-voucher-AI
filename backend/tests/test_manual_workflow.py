@@ -112,7 +112,7 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
             assert response.status_code == 200, response.text
             assert response.json()["voucher"]["voucher_pdf_id"]
             upload.assert_awaited_once()
-            assert "99.0000" in renderer.HTML.call_args.kwargs["string"]
+            assert "Rp 99" in renderer.HTML.call_args.kwargs["string"]
             records = (await db_session.execute(select(VoucherPDF))).scalars().all()
             assert len(records) == 1
             assert records[0].generated_by == data["reviewer"].user_id
@@ -126,6 +126,10 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
                 response = await client.get(f"/evidence/evidence/{request_id}/{n}.pdf?download=true")
                 assert response.status_code == 200
                 assert f"Invoice%20{n}.pdf" in response.headers["content-disposition"]
+            assert data["request"].status == RequestStatus.AMIGA_REVIEWED
+            preview = await client.get(f"/requests/{request_id}/voucher-pdf?preview=true")
+            assert preview.status_code == 200
+            assert preview.headers["content-disposition"].startswith("inline")
             assert data["request"].status == RequestStatus.AMIGA_REVIEWED
             response = await client.get(f"/requests/{request_id}/voucher-pdf")
             assert response.status_code == 200
@@ -183,7 +187,7 @@ async def test_template_versions_accept_real_jinja_and_keep_old_versions(db_sess
         assert response.status_code == 201, response.text
         response = await client.post(
             "/admin/templates",
-            data={"version": "custom-v2", "template_content": template.replace("PAYMENT VOUCHER", "MY VOUCHER")},
+            data={"version": "custom-v2", "template_content": template.replace("VOUCHER PENGELUARAN", "MY VOUCHER")},
         )
         assert response.status_code == 201
         rows = (await client.get("/admin/templates")).json()["templates"]
@@ -305,3 +309,45 @@ async def test_legacy_exception_with_extracted_draft_can_be_accepted(db_session)
     assert response.json()["voucher"]["voucher_pdf_id"]
     assert req.status == RequestStatus.AMIGA_REVIEWED
     assert req.flags == []
+
+
+async def test_voucher_information_and_item_date_can_be_saved(db_session):
+    data = await seed(db_session)
+    async with await client_for(db_session, data["reviewer"]) as client:
+        for path, value in [
+            ("header.voucher_number", "VCR-001"),
+            ("header.voucher_name", "Nama pemohon"),
+            ("header.voucher_purpose", "Biaya perjalanan"),
+            ("header.voucher_period", "Oktober 2026"),
+            ("line_items.0.item_date", "2026-10-14"),
+        ]:
+            response = await client.put(
+                f'/requests/{data["request"].request_id}/fields', json={"field_path": path, "new_value": value}
+            )
+            assert response.status_code == 200, response.text
+        detail = (await client.get(f'/requests/{data["request"].request_id}')).json()["draft"]
+        assert detail["header_fields"]["voucher_purpose"] == "Biaya perjalanan"
+        assert detail["line_items"][0]["item_date"] == "2026-10-14"
+
+
+async def test_regeneration_keeps_original_pdf_history(db_session):
+    data = await seed(db_session)
+    req = data["request"]
+    renderer = MagicMock()
+    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-new-layout"
+    async with await client_for(db_session, data["reviewer"]) as client:
+        with (
+            patch("app.routes.voucher.weasyprint", renderer),
+            patch("app.routes.voucher.file_store.upload", AsyncMock()) as upload,
+        ):
+            assert (await client.post(f"/requests/{req.request_id}/approve")).status_code == 200
+            first = await db_session.scalar(select(VoucherPDF))
+            req.status = RequestStatus.SENT_TO_CLIENT
+            await db_session.commit()
+            response = await client.post(f"/requests/{req.request_id}/voucher-pdf?regenerate=true")
+            assert response.status_code == 201, response.text
+            assert upload.await_count == 2
+            records = (await db_session.execute(select(VoucherPDF))).scalars().all()
+            assert len(records) == 2
+            assert first.voucher_pdf_id != uuid.UUID(response.json()["voucher_pdf_id"])
+            assert req.status == RequestStatus.SENT_TO_CLIENT

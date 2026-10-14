@@ -21,6 +21,10 @@ class HeaderFields(Base):
     draft_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("drafts.draft_id"), unique=True, nullable=False
     )
+    voucher_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    voucher_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    voucher_purpose: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    voucher_period: Mapped[str | None] = mapped_column(String(200), nullable=True)
     vendor_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     invoice_number: Mapped[str | None] = mapped_column(String(200), nullable=True)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -38,6 +42,7 @@ class LineItem(Base):
     line_item_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     draft_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("drafts.draft_id"), nullable=False)
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    item_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     quantity: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
