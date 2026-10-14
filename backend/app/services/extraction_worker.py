@@ -15,12 +15,13 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import AsyncSessionLocal
 from app.models.audit import AuditEventType
 from app.models.draft import Draft, ExtractionStatus
+from app.models.evidence_file import EvidenceFile
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.models.invoice_fields import (
     HeaderFields,
@@ -29,6 +30,7 @@ from app.models.invoice_fields import (
     PaymentDetails,
 )
 from app.models.request import InvoiceRequest, RequestStatus
+from app.models.telemetry import MetricType, TelemetryRecord
 from app.providers import get_extraction_provider
 from app.repositories.request_repository import request_repository
 from app.schemas.extraction import ExtractionResult
@@ -158,38 +160,94 @@ async def _persist_extraction(
     return header_orm, line_item_orms, payment_orm
 
 
+async def _fetch_evidence_files(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+) -> list[tuple[bytes, str]]:
+    """
+    Fetch all evidence file bytes for a Request from S3.
+    Prioritizes EvidenceFile rows (multi-file support), falls back to
+    the primary invoice_file_key (backward compatibility).
+    Returns list of (bytes, content_type) tuples.
+    """
+    # First, try to get evidence files from the evidence_files table
+    stmt = (
+        select(EvidenceFile)
+        .where(EvidenceFile.request_id == request_id)
+        .order_by(EvidenceFile.upload_order)
+    )
+    result = await db.execute(stmt)
+    evidence_files = list(result.scalars().all())
+
+    if evidence_files:
+        # Download all files from S3
+        downloaded: list[tuple[bytes, str]] = []
+        for ef in evidence_files:
+            file_bytes = await file_store.download(ef.file_key)
+            downloaded.append((file_bytes, ef.content_type))
+        return downloaded
+
+    # Fallback: fetch single file via Request.invoice_file_key
+    req = await request_repository.get_by_id(db, request_id)
+    if req is None:
+        raise ValueError(f"Request {request_id} not found")
+    
+    file_bytes = await file_store.download(req.invoice_file_key)
+    key_lower = req.invoice_file_key.lower()
+    if key_lower.endswith(".pdf"):
+        ct = "application/pdf"
+    elif key_lower.endswith(".png"):
+        ct = "image/png"
+    else:
+        ct = "image/jpeg"
+    
+    return [(file_bytes, ct)]
+
+
 async def _process_job(job: ExtractionJob) -> None:
     """Process a single IN_PROGRESS extraction job end-to-end."""
+    start_time = datetime.now(timezone.utc)
+    
     async with AsyncSessionLocal() as db:
         try:
-            # Fetch the request to get file key
+            # Fetch the request to get page count and request_id
             req = await request_repository.get_by_id(db, job.request_id)
             if req is None:
                 logger.error("ExtractionJob %s: request %s not found", job.job_id, job.request_id)
                 return
 
-            # Download the evidence file from S3
-            file_bytes = await file_store.download(req.invoice_file_key)
-            # Infer content type from the key extension
-            key_lower = req.invoice_file_key.lower()
-            if key_lower.endswith(".pdf"):
-                ct = "application/pdf"
-            elif key_lower.endswith(".png"):
-                ct = "image/png"
-            else:
-                ct = "image/jpeg"
+            # Fetch all evidence files from S3
+            evidence_files = await _fetch_evidence_files(db, job.request_id)
 
             # Run extraction
             provider = get_extraction_provider()
             result = await provider.extract(
-                evidence_files=[(file_bytes, ct)],
+                evidence_files=evidence_files,
                 request_id=job.request_id,
             )
 
-            # Persist extracted fields
-            header_orm, line_item_orms, payment_orm = await _persist_extraction(
-                db, job.request_id, result
+            # Idempotency check: if Draft already exists, skip creation
+            existing_draft = await db.scalar(
+                select(Draft).where(Draft.request_id == job.request_id)
             )
+            
+            if existing_draft:
+                # Load existing data for validation
+                header_orm = await db.scalar(
+                    select(HeaderFields).where(HeaderFields.draft_id == existing_draft.draft_id)
+                )
+                line_items_result = await db.execute(
+                    select(LineItem).where(LineItem.draft_id == existing_draft.draft_id)
+                )
+                line_item_orms = list(line_items_result.scalars().all())
+                payment_orm = await db.scalar(
+                    select(PaymentDetails).where(PaymentDetails.draft_id == existing_draft.draft_id)
+                )
+            else:
+                # Persist extracted fields
+                header_orm, line_item_orms, payment_orm = await _persist_extraction(
+                    db, job.request_id, result
+                )
 
             # Run validation
             flags = await run_validation(
@@ -200,7 +258,7 @@ async def _process_job(job: ExtractionJob) -> None:
                 db=db,
             )
 
-            # Apply flags to request
+            # Apply flags to request and log FLAG_APPLIED events
             for flag in flags:
                 await request_repository.apply_flag(db, job.request_id, flag)
 
@@ -209,6 +267,8 @@ async def _process_job(job: ExtractionJob) -> None:
                 RequestStatus.EXCEPTION if flags else RequestStatus.READY_FOR_REVIEW
             )
             await request_repository.update_status(db, job.request_id, new_req_status)
+            
+            # Log STATUS_CHANGED event
             await log_event(
                 db,
                 AuditEventType.STATUS_CHANGED,
@@ -222,17 +282,83 @@ async def _process_job(job: ExtractionJob) -> None:
                 actor_id=None,
             )
 
+            # Log FLAG_APPLIED events for each flag
+            for flag in flags:
+                # Add detailed info for specific flags
+                flag_payload = {"flag": flag}
+                if flag == "MISSING_EVIDENCE":
+                    # Determine which fields are missing based on validation
+                    missing = []
+                    if payment_orm is None:
+                        missing.extend(["bank_account_number", "bank_name", "payment_reference"])
+                    else:
+                        if not payment_orm.bank_account_number:
+                            missing.append("bank_account_number")
+                        if not payment_orm.bank_name:
+                            missing.append("bank_name")
+                        if not payment_orm.payment_reference:
+                            missing.append("payment_reference")
+                    if missing:
+                        flag_payload["missing_fields"] = missing
+                    for i, li in enumerate(line_item_orms):
+                        if not li.description or not li.quantity or not li.unit or not li.unit_price or not li.line_total:
+                            missing.append(f"line_items[{i + 1}]")
+                    if missing:
+                        flag_payload["details"] = missing
+                elif flag == "CALC_DISCREPANCY":
+                    # This would require re-running calculation validator to get details
+                    # For now, just note the flag
+                    flag_payload["details"] = "calculation discrepancy detected"
+                elif flag == "POSSIBLE_DUPLICATE":
+                    # This would require re-running duplicate detector to get matches
+                    flag_payload["details"] = "possible duplicate detected"
+                
+                await log_event(
+                    db,
+                    AuditEventType.FLAG_APPLIED,
+                    payload=flag_payload,
+                    request_id=job.request_id,
+                    actor_id=None,
+                )
+
+            # Telemetry
+            end_time = datetime.now(timezone.utc)
+            duration_ms = int((end_time - start_time).total_seconds() * 1000)
+            page_count = req.invoice_page_count
+            
+            # Determine SLA threshold based on page count
+            if page_count is None or page_count <= 5:
+                threshold = 15_000
+            elif page_count <= 20:
+                threshold = 30_000
+            else:
+                threshold = 30_000  # Still use 30s for >20 pages
+            
+            is_breach = duration_ms > threshold
+            
+            await db.execute(
+                insert(TelemetryRecord).values(
+                    record_id=uuid.uuid4(),
+                    metric_type=MetricType.EXTRACTION_DURATION,
+                    subject_id=str(job.job_id),
+                    duration_ms=duration_ms,
+                    page_count=page_count,
+                    is_breach=is_breach,
+                    breach_threshold_ms=threshold,
+                    measured_at=end_time,
+                )
+            )
+
             # Mark job as DONE
-            now = datetime.now(timezone.utc)
             await db.execute(
                 update(ExtractionJob)
                 .where(ExtractionJob.job_id == job.job_id)
-                .values(status=ExtractionJobStatus.DONE, completed_at=now)
+                .values(status=ExtractionJobStatus.DONE, completed_at=end_time)
             )
             await db.commit()
             logger.info(
-                "ExtractionJob %s completed → request %s status=%s",
-                job.job_id, job.request_id, new_req_status.value,
+                "ExtractionJob %s completed → request %s status=%s, duration=%dms",
+                job.job_id, job.request_id, new_req_status.value, duration_ms,
             )
 
         except Exception as exc:  # noqa: BLE001

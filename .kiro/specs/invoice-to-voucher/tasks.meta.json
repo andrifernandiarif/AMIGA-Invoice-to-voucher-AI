@@ -361,6 +361,11 @@
         "executionId": "59438f77-6017-43e9-92ae-0a652419b006",
         "chatSessionId": "sess_403b11cc-61c5-4b7d-8659-51813634e3da",
         "timestamp": 1791903288104
+      },
+      {
+        "executionId": "c1895ef4-0763-4dbb-bc71-700f64b66483",
+        "chatSessionId": "sess_a31cdded-14d7-4442-b10b-ac2fe8988200",
+        "timestamp": 1791939758939
       }
     ],
     "15.1 In `extract_invoice`, after writing extraction output to storage, compute `duration_ms = int((end_time - start_time).total_seconds() * 1000)`; persist a `TelemetryRecord` with `metric_type = EXTRACTION_DURATION`; if `duration_ms > threshold` (15 000 ms for ≤ 5 pages, 30 000 ms for 6–20 pages), also persist a breach event with `is_breach = True`": [
@@ -1129,6 +1134,13 @@
         "executionId": "b9fe4fa6-13e0-4c03-a2c2-e400cd546e27",
         "chatSessionId": "sess_378b91fa-09a2-4c2e-a0e5-6f1cbbe4da40",
         "timestamp": 1791905291602
+      }
+    ],
+    "14.1 In `app/services/extraction_worker.py`: implement `process_extraction_job(job: ExtractionJob, db: AsyncSession)` — set Request status to `PROCESSING`; fetch all Evidence File bytes from `S3FileStore`; check idempotency (if `Draft` already exists for `request_id`, skip creation and proceed to validation); call `ExtractionProvider.extract(evidence_files, request_id)` — provider selected via `EXTRACTION_PROVIDER` env var (`\"mock\"` or `\"bedrock\"`); persist `Draft`, `HeaderFields`, `LineItem[]`, and `PaymentDetails` records to the DB; record `start_time` (from the moment status transitioned to `PROCESSING`) and `end_time` for telemetry; on failure increment `retry_count`; after `retry_count >= 3` set `ExtractionJob.status = FAILED` and transition Request to `EXCEPTION` with a `PROCESSING_FAILED` `AuditEvent`": [
+      {
+        "executionId": "c1895ef4-0763-4dbb-bc71-700f64b66483",
+        "chatSessionId": "sess_a31cdded-14d7-4442-b10b-ac2fe8988200",
+        "timestamp": 1791939753701
       }
     ]
   }
