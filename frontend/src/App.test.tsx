@@ -354,3 +354,55 @@ it("lets Client PIC retry a blank extraction using the original evidence", async
       ),
   ).toBe(true);
 });
+
+it("hides Amiga AI without chat permission", async () => {
+  sessionStorage.setItem("amiga_access_token", "token");
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      response(
+        url === "/api/auth/me" ? { ...user, permissions: [] } : [],
+      ) as Response,
+  );
+  render(<App />);
+  await screen.findByRole("heading", { name: "Finance workspace." });
+  expect(
+    screen.queryByRole("button", { name: "Open Amiga AI" }),
+  ).not.toBeInTheDocument();
+});
+
+it("clears Amiga AI drafts when the user signs out and signs in again", async () => {
+  sessionStorage.setItem("amiga_access_token", "token");
+  vi.mocked(fetch).mockImplementation(
+    async (url) =>
+      response(
+        url === "/api/auth/me"
+          ? user
+          : url === "/api/auth/login"
+            ? { access_token: "new-token" }
+            : [],
+      ) as Response,
+  );
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Open Amiga AI" }),
+  );
+  await userEvent.type(
+    screen.getByLabelText("Your question"),
+    "Private session draft",
+  );
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(screen.getByRole("button", { name: /finance/i }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+  await screen.findByRole("heading", { name: "Sign in to your workspace" });
+  await userEvent.type(screen.getByLabelText("Username"), "finance");
+  await userEvent.type(
+    screen.getByLabelText("Password"),
+    "Finance-Password-2026",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Open Amiga AI" }),
+  );
+  expect(screen.getByLabelText("Your question")).toHaveValue("");
+});

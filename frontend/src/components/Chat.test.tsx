@@ -45,7 +45,7 @@ it("sends a scoped question and renders the grounded answer", async () => {
     request_id: "r1",
   });
   expect(
-    screen.getByText("Based on 4 retrieved document sections"),
+    screen.getByText("Based on 4 authorized records"),
   ).toBeInTheDocument();
 });
 it("preserves the question after an upstream error and allows retry", async () => {
@@ -83,5 +83,5 @@ it("preserves the question after an upstream error and allows retry", async () =
   await waitFor(() =>
     expect(screen.getByLabelText("Your question")).toHaveValue(""),
   );
-  expect(screen.getByText("No matching indexed records")).toBeInTheDocument();
+  expect(screen.getByText("No matching accessible records")).toBeInTheDocument();
 });

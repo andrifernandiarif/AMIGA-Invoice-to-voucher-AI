@@ -1,11 +1,33 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, Invoice, json } from "../api";
 
-type Turn = { question: string; answer: string; chunks: number };
-export default function Chat() {
+type Source = { request_id?: string; client_id?: string; label: string };
+type Turn = {
+  question: string;
+  answer: string;
+  chunks: number;
+  sources?: Source[];
+  coverage?: string;
+  requestId?: string;
+  page: number;
+  hasMore?: boolean;
+};
+export default function Chat({ scope }: { scope?: string } = {}) {
   const [params] = useSearchParams();
-  const [requestId, setRequestId] = useState(params.get("request_id") || "");
+  const [requestId, setRequestId] = useState(
+    scope ?? params.get("request_id") ?? "",
+  );
+  useEffect(() => {
+    if (scope !== undefined) {
+      controller.current?.abort();
+      setPending("");
+      setRequestId(scope);
+      setTurns([]);
+      setQuestion("");
+      setError("");
+    }
+  }, [scope]);
   const [requests, setRequests] = useState<Invoice[]>([]);
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -26,30 +48,58 @@ export default function Chat() {
     };
   }, []);
   useEffect(() => {
-    end.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+    end.current?.scrollIntoView?.({
+      behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "nearest",
+    });
   }, [turns, pending]);
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const message = question.trim();
+    await send(question.trim(), requestId);
+  }
+  async function send(message: string, selectedRequest = "", page = 0) {
     if (!message || pending) return;
     setError("");
+    setQuestion(message);
     setPending(message);
     const abort = new AbortController();
     controller.current = abort;
     try {
-      const result = await api<{ answer: string; chunks_used: number }>(
-        "/chat",
-        {
-          ...json({ message, ...(requestId ? { request_id: requestId } : {}) }),
-          signal: abort.signal,
-        },
-      );
+      const result = await api<{
+        answer: string;
+        chunks_used: number;
+        sources?: Source[];
+        coverage?: string;
+        has_more_items?: boolean;
+      }>("/chat", {
+        ...json({
+          message,
+          ...(selectedRequest ? { request_id: selectedRequest } : {}),
+          ...(page ? { item_page: page } : {}),
+        }),
+        signal: abort.signal,
+      });
+      if (abort.signal.aborted) return;
+      const sourceIds = [
+        ...new Set(
+          result.sources?.flatMap((source) =>
+            source.request_id ? [source.request_id] : [],
+          ) || [],
+        ),
+      ];
       setTurns((previous) => [
         ...previous,
         {
           question: message,
           answer: result.answer,
           chunks: result.chunks_used,
+          sources: result.sources,
+          coverage: result.coverage,
+          requestId: sourceIds.length === 1 ? sourceIds[0] : undefined,
+          page,
+          hasMore: result.has_more_items,
         },
       ]);
       setQuestion("");
@@ -61,15 +111,6 @@ export default function Chat() {
   }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">WORKSPACE / INVOICE CHAT</span>
-          <h1>
-            Ask about your invoices<span className="heading-dot">.</span>
-          </h1>
-          <p>Find details in approved vouchers and their invoice records.</p>
-        </div>
-      </div>
       <section className="card chat-workspace">
         <div className="chat-context">
           <label>
@@ -81,10 +122,11 @@ export default function Chat() {
               onChange={(e) => {
                 setRequestId(e.target.value);
                 setTurns([]);
+                setQuestion("");
                 setError("");
               }}
             >
-              <option value="">All requests assigned to me</option>
+              <option value="">All accessible requests</option>
               {requestId &&
                 !requests.some((r) => r.request_id === requestId) && (
                   <option value={requestId}>
@@ -99,9 +141,9 @@ export default function Chat() {
             </select>
           </label>
           <p className="muted">
-            Approved and delivered requests are searchable. Include the
-            invoice number in each question; each question is answered
-            independently. Results may cover only part of your records.
+            Search current company, invoice, and progress records within your
+            permissions. Include a company name or invoice number; each question
+            is answered independently.
           </p>
         </div>
         <div className="chat-messages" aria-live="polite" aria-busy={!!pending}>
@@ -115,7 +157,7 @@ export default function Chat() {
                 {[
                   "What are the invoice numbers and their current statuses?",
                   "What are the extracted amount and calculated voucher total?",
-                  "Which taxes are assigned to the invoice items?",
+                  "What has happened so far, and what is the next required action?",
                 ].map((text) => (
                   <button
                     type="button"
@@ -136,13 +178,40 @@ export default function Chat() {
                 <p>{turn.question}</p>
               </div>
               <div className="chat-answer">
-                <strong>Invoice assistant</strong>
+                <strong>Amiga AI</strong>
                 <p>{turn.answer}</p>
                 <small className="muted">
                   {turn.chunks
-                    ? `Based on ${turn.chunks} retrieved document sections`
-                    : "No matching indexed records"}
+                    ? `Based on ${turn.chunks} authorized records`
+                    : "No matching accessible records"}
                 </small>
+                {turn.hasMore && turn.requestId && (
+                  <button
+                    className="secondary"
+                    disabled={!!pending}
+                    onClick={() =>
+                      send(turn.question, turn.requestId, turn.page + 1)
+                    }
+                  >
+                    Next line items
+                  </button>
+                )}
+                {turn.coverage && (
+                  <p className="chat-coverage">{turn.coverage}</p>
+                )}
+                {!!turn.sources?.length && (
+                  <div className="chat-sources" aria-label="Sources">
+                    {turn.sources.map((source, index) =>
+                      source.request_id ? (
+                        <Link key={index} to={`/requests/${source.request_id}`}>
+                          {source.label}
+                        </Link>
+                      ) : (
+                        <span key={index}>{source.label}</span>
+                      ),
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))}

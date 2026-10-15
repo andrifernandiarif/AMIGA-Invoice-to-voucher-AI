@@ -2196,3 +2196,229 @@ a:focus-visible {
 .dashboard-filters input, .dashboard-filters select { padding:8px; width:100%; border:1px solid #ccd3d0; border-radius:6px; }
 .dashboard-filters input[type=checkbox] { width:auto; }
 @media(max-width:760px) { .dashboard-filters { grid-template-columns:1fr 1fr; } }
+
+/* Amiga AI workspace companion */
+.amiga-ai-launcher {
+  position: fixed;
+  right: 30px;
+  bottom: 28px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 23px;
+  border: 1px solid #ffffff45;
+  border-radius: 40px;
+  color: white;
+  background: linear-gradient(135deg, #173f41, #347778);
+  box-shadow:
+    0 8px 30px #173f4140,
+    inset 0 1px 0 #ffffff30;
+  font-weight: 600;
+  cursor: pointer;
+}
+.amiga-ai-launcher > span {
+  font-size: 23px;
+  color: #e6d4ab;
+}
+.amiga-ai-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: #102e316b;
+  backdrop-filter: blur(9px);
+}
+.amiga-ai-overlay[hidden] {
+  display: none;
+}
+.amiga-ai-dialog {
+  width: min(940px, 100%);
+  height: min(850px, 92dvh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #ffffffb3;
+  border-radius: 26px;
+  background: #fafbf8;
+  box-shadow: 0 30px 110px #102e3159;
+  animation: amiga-ai-enter 0.2s ease-out;
+}
+.amiga-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 25px 30px;
+  background: linear-gradient(110deg, #edf6f5, #faf9f2);
+  border-bottom: 1px solid #dfe9e8;
+}
+.amiga-ai-symbol {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  background: #235f61;
+  color: #e6d4ab;
+  font-size: 30px;
+}
+.amiga-ai-header h2 {
+  margin: 3px 0;
+  font-size: 27px;
+  color: #245153;
+  letter-spacing: -0.8px;
+}
+.amiga-ai-header p {
+  margin: 0;
+  font-size: 13px;
+  color: #63767a;
+}
+.amiga-ai-header .eyebrow {
+  font-size: 9px;
+  letter-spacing: 1.7px;
+}
+.amiga-ai-close {
+  margin-left: auto;
+  align-self: flex-start;
+  border: 1px solid #dce5e5;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  background: #ffffffb3;
+  font-size: 24px;
+  color: #355458;
+  cursor: pointer;
+}
+.amiga-ai-dialog .chat-workspace {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.amiga-ai-dialog .chat-context {
+  padding: 16px 28px;
+}
+.amiga-ai-dialog .chat-context .muted {
+  font-size: 12px;
+  margin-bottom: 0;
+}
+.amiga-ai-dialog .chat-messages {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 22px 28px;
+}
+.amiga-ai-dialog .chat-answer p {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+.amiga-ai-dialog .chat-composer {
+  padding: 15px 28px 8px;
+  border-top: 1px solid #e1e9e8;
+}
+.amiga-ai-dialog .chat-composer textarea {
+  border-radius: 13px;
+  resize: vertical;
+  max-height: 130px;
+}
+.amiga-ai-dialog .error-banner {
+  margin: 0 28px;
+}
+.amiga-ai-footnote {
+  text-align: center;
+  margin: 9px 20px 14px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: #758589;
+}
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chat-sources a,
+.chat-sources span {
+  font-size: 11px;
+  color: #2b6265;
+  padding: 5px 10px;
+  border-radius: 16px;
+  background: #eef6f5;
+  text-decoration: none;
+}
+.chat-coverage {
+  color: #697a7b;
+  font-size: 12px;
+}
+@keyframes amiga-ai-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 640px) {
+  .amiga-ai-launcher {
+    right: 17px;
+    bottom: 18px;
+    padding: 12px 18px;
+  }
+  .amiga-ai-overlay {
+    padding: 0;
+  }
+  .amiga-ai-dialog {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+  .amiga-ai-header {
+    padding: 20px 16px;
+    gap: 10px;
+  }
+  .amiga-ai-header p {
+    font-size: 11px;
+  }
+  .amiga-ai-dialog .chat-context,
+  .amiga-ai-dialog .chat-messages {
+    padding: 14px 16px;
+  }
+  .amiga-ai-dialog .chat-composer {
+    padding: 12px 16px 5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .amiga-ai-dialog {
+    animation: none;
+  }
+  .amiga-ai-dialog * {
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-height: 650px) {
+  .amiga-ai-dialog .chat-context .muted,
+  .amiga-ai-header p {
+    display: none;
+  }
+  .amiga-ai-header {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .amiga-ai-dialog .chat-composer textarea {
+    min-height: 55px;
+    max-height: 80px;
+  }
+}

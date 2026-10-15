@@ -317,6 +317,13 @@ async def _handle_failure(job: ExtractionJob, error_detail: str) -> None:
             await request_repository.update_status(db, job.request_id, RequestStatus.EXCEPTION)
             await log_event(
                 db,
+                AuditEventType.STATUS_CHANGED,
+                payload={"from": "PROCESSING", "to": "EXCEPTION"},
+                request_id=job.request_id,
+                actor_id=None,
+            )
+            await log_event(
+                db,
                 AuditEventType.PROCESSING_FAILED,
                 payload={
                     "job_id": str(job.job_id),

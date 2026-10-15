@@ -39,7 +39,7 @@ import {
   ClientManager,
   PasswordInput,
 } from "./components/Operations";
-import Chat from "./components/Chat";
+import AmigaAI from "./components/AmigaAI";
 import Account from "./components/Account";
 import VoucherMetadata, {
   Approver,
@@ -1741,12 +1741,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
               Companies
             </NavLink>
           )}
-          {can(user, "chat") && (
-            <NavLink to="/chat">
-              <Icon name="search" />
-              Invoice chat
-            </NavLink>
-          )}
+
         </nav>
       </aside>
       <div className="main-shell">
@@ -1797,7 +1792,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
         </header>
         <main>
           <Routes>
-            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat" element={<Dashboard user={user} />} />
             <Route
               path="/account"
               element={
@@ -1897,6 +1892,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           <span>Prepared with AI. Reviewed by people.</span>
         </footer>
       </div>
+      {can(user, "chat") && <AmigaAI />}
       {signOutOpen && (
         <ConfirmSignOut
           onCancel={() => setSignOutOpen(false)}

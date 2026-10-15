@@ -128,7 +128,8 @@ async def test_rag_removes_unauthorized_chunks_before_llm(db_session):
         answer = await rag_service.ask("status?", data["reviewer"], db_session)
     assert str(answer) == "Approved." and answer.chunks_used == 1
     texts = generate.call_args.args[1]
-    assert len(texts) == 1 and "AUTHORIZED" in texts[0]
+    assert len(texts) == 2 and "INV-1" in texts[0]
+    assert "AUTHORIZED INVOICE" not in "".join(texts)  # Indexed snapshots are discovery hints only.
     assert "PRIVATE OTHER CLIENT" not in "".join(texts)
     assert search.call_args.kwargs["user_id"] == data["reviewer"].user_id
 
@@ -144,16 +145,16 @@ async def test_rag_denies_request_scope_before_embedding(db_session):
         embed.assert_not_awaited()
 
 
-async def test_rag_empty_results_never_calls_llm(db_session):
+async def test_rag_empty_vector_results_use_live_records(db_session):
     data = await seed(db_session)
     with (
         patch.object(embedding_service, "embed", AsyncMock(return_value=vector())),
         patch("app.services.vector_store.similarity_search", AsyncMock(return_value=[])),
-        patch.object(answer_generator, "generate", AsyncMock()) as generate,
+        patch.object(answer_generator, "generate", AsyncMock(return_value="Current status.")) as generate,
     ):
         answer = await rag_service.ask("status?", data["reviewer"], db_session)
-    assert answer.chunks_used == 0
-    generate.assert_not_awaited()
+    assert answer.chunks_used == 1
+    assert "READY_FOR_REVIEW" in generate.call_args.args[1][0]
 
 
 async def test_chat_jwt_required_and_response_shape(db_session):
