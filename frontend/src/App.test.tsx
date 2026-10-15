@@ -67,7 +67,8 @@ describe("Workspace", () => {
     await screen.findByText("Acme", { selector: "td" });
     await userEvent.type(screen.getByLabelText("Search requests"), "missing");
     expect(screen.getByText("No matching requests")).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("Sign out"));
+    await userEvent.click(screen.getByRole("button", { name: /finance/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     await waitFor(() =>
       expect(
         screen.getByRole("heading", { name: "Sign in to your workspace" }),

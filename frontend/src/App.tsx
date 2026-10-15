@@ -1,4 +1,10 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   BrowserRouter,
   Link,
@@ -52,6 +58,9 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     alert: "M12 9v4 m0 4h.01 M10 3 1 19h22L14 3z",
     logout: "M9 3H3v18h6 M9 12h12 m-4-4 4 4-4 4",
     plus: "M12 5v14 M5 12h14",
+    chevron: "m6 9 6 6 6-6",
+    menu: "M4 6h16 M4 12h16 M4 18h16",
+    close: "m6 6 12 12 M18 6 6 18",
   };
   return (
     <svg
@@ -67,6 +76,18 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     >
       <path d={paths[name] || paths.file} />
     </svg>
+  );
+}
+const desktopLogo =
+  "https://res.cloudinary.com/dyb0gqcmu/image/upload/v1792050683/Logo-AMIGA-2025.webp";
+const mobileLogo =
+  "https://res.cloudinary.com/dyb0gqcmu/image/upload/v1792050683/Logo-AMIGA-2025-1.webp";
+function BrandLogo() {
+  return (
+    <picture className="brand-logo">
+      <source media="(max-width: 760px)" srcSet={mobileLogo} />
+      <img src={desktopLogo} alt="amiga" />
+    </picture>
   );
 }
 const label = (s: string) =>
@@ -123,8 +144,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     <div className="login-page">
       <div className="login-story">
         <div className="wordmark">
-          <span className="brand-icon">a</span>amiga
-          <span className="brand-dot">.</span>
+          <BrandLogo />
         </div>
         <span className="eyebrow">YOUR FINANCE WORKSPACE</span>
         <h1>
@@ -1530,13 +1550,39 @@ function RequestView({ user }: { user: User }) {
 }
 
 function Shell({ user, logout }: { user: User; logout: () => void }) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeMenu = (event: MouseEvent) => {
+      if (
+        accountMenuRef.current &&
+        !accountMenuRef.current.contains(event.target as Node)
+      ) {
+        setAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
+  }, [accountMenuOpen]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <Link to="/" className="wordmark">
-          <span className="brand-icon">a</span>amiga
-          <span className="brand-dot">.</span>
+          <BrandLogo />
         </Link>
+        <button
+          type="button"
+          className="mobile-menu-button"
+          aria-label={mobileMenuOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+        >
+          <Icon name={mobileMenuOpen ? "close" : "menu"} size={21} />
+        </button>
         <div className="workspace-switch">
           <span className="workspace-avatar">A</span>
           <div>
@@ -1544,7 +1590,10 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           </div>
         </div>
         <span className="nav-label">WORKSPACE</span>
-        <nav>
+        <nav
+          className={mobileMenuOpen ? "mobile-menu-open" : ""}
+          onClick={() => setMobileMenuOpen(false)}
+        >
           <NavLink to="/" end>
             <Icon name="grid" />
             Overview
@@ -1597,33 +1646,6 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             </NavLink>
           )}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="sidebar-tip">
-            <span className="tip-icon">✦</span>
-            <strong>A smarter way to process</strong>
-            <p>
-              AI-assisted extraction.
-              <br />
-              Human-reviewed results.
-            </p>
-          </div>
-          <div className="user-profile">
-            <span className="user-avatar">
-              {user.username.slice(0, 2).toUpperCase()}
-            </span>
-            <div>
-              <strong>{user.username}</strong>
-              <small>{label(user.role)}</small>
-            </div>
-            <button
-              className="icon-button"
-              onClick={logout}
-              aria-label="Sign out"
-            >
-              <Icon name="logout" size={17} />
-            </button>
-          </div>
-        </div>
       </aside>
       <div className="main-shell">
         <header className="topbar">
@@ -1631,10 +1653,42 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             Invoice-to-voucher <span className="topbar-divider">/</span>{" "}
             <strong>Workspace</strong>
           </span>
-          <span className="environment">
-            <i className="live-dot" />
-            Development workspace
-          </span>
+          <div className="topbar-actions">
+            <div className="account-menu" ref={accountMenuRef}>
+              <button
+                className="account-menu-trigger"
+                onClick={() => setAccountMenuOpen((open) => !open)}
+                aria-expanded={accountMenuOpen}
+                aria-haspopup="menu"
+              >
+                <span className="user-avatar">
+                  {user.username.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="account-menu-name">{user.username}</span>
+                <Icon name="chevron" size={15} />
+              </button>
+              {accountMenuOpen && (
+                <div className="account-menu-dropdown" role="menu">
+                  <Link
+                    to="/account"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                  >
+                    Your account
+                  </Link>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={logout}
+                    aria-label="Sign out"
+                  >
+                    <Icon name="logout" size={16} />
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
         <main>
           <Routes>

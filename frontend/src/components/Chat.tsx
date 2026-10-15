@@ -71,36 +71,39 @@ export default function Chat() {
         </div>
       </div>
       <section className="card chat-workspace">
-        <label>
-          Search scope
-          <select
-            aria-label="Search scope"
-            value={requestId}
-            disabled={!!pending}
-            onChange={(e) => {
-              setRequestId(e.target.value);
-              setTurns([]);
-              setError("");
-            }}
-          >
-            <option value="">All requests assigned to me</option>
-            {requestId && !requests.some((r) => r.request_id === requestId) && (
-              <option value={requestId}>
-                Selected request ({requestId.slice(0, 8)})
-              </option>
-            )}
-            {requests.map((r) => (
-              <option key={r.request_id} value={r.request_id}>
-                {r.client_name} · {r.request_id.slice(0, 8)} · {r.status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="muted">
-          Approved and delivered requests are searchable. Include the invoice
-          number in each question; each question is answered independently.
-          Results may cover only part of your records.
-        </p>
+        <div className="chat-context">
+          <label>
+            Search scope
+            <select
+              aria-label="Search scope"
+              value={requestId}
+              disabled={!!pending}
+              onChange={(e) => {
+                setRequestId(e.target.value);
+                setTurns([]);
+                setError("");
+              }}
+            >
+              <option value="">All requests assigned to me</option>
+              {requestId &&
+                !requests.some((r) => r.request_id === requestId) && (
+                  <option value={requestId}>
+                    Selected request ({requestId.slice(0, 8)})
+                  </option>
+                )}
+              {requests.map((r) => (
+                <option key={r.request_id} value={r.request_id}>
+                  {r.client_name} · {r.request_id.slice(0, 8)} · {r.status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">
+            Approved and delivered requests are searchable. Include the
+            invoice number in each question; each question is answered
+            independently. Results may cover only part of your records.
+          </p>
+        </div>
         <div className="chat-messages" aria-live="polite" aria-busy={!!pending}>
           {!turns.length && !pending && (
             <div className="chat-intro">
