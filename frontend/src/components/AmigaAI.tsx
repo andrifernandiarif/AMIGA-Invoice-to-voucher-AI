@@ -92,7 +92,19 @@ export default function AmigaAI() {
           setOpen(true);
         }}
       >
-        <span aria-hidden="true">✦</span> Amiga AI
+        <svg
+          className="amiga-ai-launcher-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.2-.65L4 20l1.65-4.15A7.5 7.5 0 1 1 20 11.5Z" />
+          <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" />
+        </svg>
       </button>
       <div
         className="amiga-ai-overlay"
@@ -109,9 +121,11 @@ export default function AmigaAI() {
           aria-labelledby="amiga-ai-title"
         >
           <header className="amiga-ai-header">
-            <div className="amiga-ai-symbol" aria-hidden="true">
-              ✦
-            </div>
+            <img
+              className="amiga-ai-symbol"
+              src="https://res.cloudinary.com/dyb0gqcmu/image/upload/v1792050683/Logo-AMIGA-2025.webp"
+              alt="AMIGA"
+            />
             <div>
               <span className="eyebrow">YOUR WORKSPACE INTELLIGENCE</span>
               <h2 id="amiga-ai-title">Amiga AI</h2>

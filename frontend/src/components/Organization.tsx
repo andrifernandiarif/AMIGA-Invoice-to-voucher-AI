@@ -1,19 +1,24 @@
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { api, apiFetch, can, Client, json, User } from "../api";
 import { PasswordInput } from "./Operations";
 import { PageSkeleton } from "./Skeleton";
+
 const operational = [
   "CLIENT_PIC",
   "INTAKE_SUPPORT",
   "FINANCE_REVIEWER",
   "SERVICE_LEAD",
 ];
+
 type Person = User & { assignments: string[]; is_active: boolean };
+
 export default function Organization({ user }: { user: User }) {
   const [people, setPeople] = useState<Person[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
-  const [offset, setOffset] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [selected, setSelected] = useState<Person | null>(null);
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
@@ -24,24 +29,32 @@ export default function Organization({ user }: { user: User }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   const roles =
     user.role === "SUPER_ADMIN"
       ? [...operational, "SYSTEM_ADMIN", "USER_ADMIN", "SUPER_ADMIN"]
       : operational;
   const manage = can(user, "users");
+
   async function load() {
-    setPeople(
-      await api<Person[]>(
-        `/users?search=${encodeURIComponent(search)}&offset=${offset}`,
-      ),
+    const rows = await api<Person[]>(
+      `/users?search=${encodeURIComponent(search)}&offset=${
+        (currentPage - 1) * itemsPerPage
+      }&limit=${itemsPerPage + 1}`,
     );
+    setHasNextPage(rows.length > itemsPerPage);
+    setPeople(rows.slice(0, itemsPerPage));
   }
+
   useEffect(() => {
     setLoading(true);
     load()
       .catch((e) => setMessage(e.message))
       .finally(() => setLoading(false));
-  }, [search, offset]);
+  }, [search, currentPage, itemsPerPage]);
+
   useEffect(() => {
     if (!can(user, "assignments")) return;
     api<Client[]>(user.role === "SUPER_ADMIN" ? "/clients/all" : "/clients")
@@ -49,15 +62,40 @@ export default function Organization({ user }: { user: User }) {
       .catch((e) => setMessage(e.message));
   }, [user.role]);
 
-  function choose(p: Person | null) {
-    setSelected(p);
-    setUsername(p?.username || "");
-    setName(p?.full_name || "");
-    setTitle(p?.job_title || "");
-    setRole(p?.role || "CLIENT_PIC");
-    setPassword("");
-    setMessage("");
+  /** Open "Manage account" inline — sets selected + expanded state for that user */
+  function expand(p: Person) {
+    const isAlreadyExpanded = expandedId === p.user_id;
+    if (isAlreadyExpanded) {
+      setExpandedId(null);
+      setSelected(null);
+    } else {
+      setExpandedId(p.user_id);
+      setSelected(p);
+      setRole(p.role || "CLIENT_PIC");
+      setPassword("");
+      setMessage("");
+    }
   }
+
+  /** Reset "Create account" form fields */
+  function openCreateModal() {
+    setUsername("");
+    setName("");
+    setTitle("");
+    setRole("CLIENT_PIC");
+    setPassword("");
+    setClient("");
+    setMessage("");
+    setIsModalOpen(true);
+  }
+
+  function importCsv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMessage(`${file.name} selected. CSV import is ready for processing.`);
+    e.target.value = "";
+  }
+
   async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     setMessage("");
@@ -72,6 +110,7 @@ export default function Organization({ user }: { user: User }) {
       setBusy(false);
     }
   }
+
   function create(e: FormEvent) {
     e.preventDefault();
     void run(
@@ -90,7 +129,9 @@ export default function Organization({ user }: { user: User }) {
         ),
       "Account created. Share the temporary password privately; a change is required at first login.",
     );
+    setIsModalOpen(false);
   }
+
   async function assignment(id: string, remove: boolean) {
     await run(
       () =>
@@ -103,172 +144,344 @@ export default function Organization({ user }: { user: User }) {
     const updated = await api<Person[]>(
       `/users?search=${encodeURIComponent(selected!.username)}`,
     );
-    setSelected(updated.find((p) => p.user_id === selected!.user_id) || null);
+    const refreshed = updated.find((p) => p.user_id === selected!.user_id) || null;
+    setSelected(refreshed);
   }
+
   return (
-    <section>
-      <h1>People & assignments</h1>
-      <p>Access is controlled by role and active company assignments.</p>
-      <label>
-        Search accounts
-        <input
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setOffset(0);
-          }}
-        />
-      </label>
+    <section className="organization-page">
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <div className="organization-heading">
+        <div>
+          <p className="organization-eyebrow">Organization</p>
+          <h1>People directory</h1>
+          <p className="organization-subtitle">
+            Manage account access, roles, and company assignments.
+          </p>
+        </div>
+        {manage && (
+          <div className="organization-actions">
+            <label className="button button-secondary csv-upload">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={importCsv}
+              />
+              Import CSV
+            </label>
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={openCreateModal}
+            >
+              Create
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Toolbar ────────────────────────────────────────────────── */}
+      <div className="organization-toolbar">
+        <label className="directory-search">
+          <span className="search-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+          </span>
+          <span className="sr-only">Search accounts</span>
+          <input
+            value={search}
+            placeholder="search.."
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
+          />
+        </label>
+        <div className="directory-toolbar-summary">
+          <span className="directory-count">
+            {people.length} accounts on this page
+          </span>
+          <label className="directory-page-size">
+            Show list
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
       <p role="status">{message}</p>
+
+      {/* ── Directory (full-width) ──────────────────────────────────── */}
       {loading ? (
         <PageSkeleton />
       ) : (
-      <div className="organization-grid">
-        <section className="card">
-          <h2>Directory</h2>
-          {manage && (
-            <button onClick={() => choose(null)}>Create account</button>
-          )}
-          {people.map((p) => (
-            <button
-              className="directory-person"
-              key={p.user_id}
-              onClick={() => choose(p)}
-            >
-              {p.full_name || p.username} · {p.role} ·{" "}
-              {p.is_active ? "Active" : "Inactive"}
-            </button>
-          ))}
-          <button
-            disabled={!offset}
-            onClick={() => setOffset(Math.max(0, offset - 50))}
-          >
-            Previous
-          </button>
-          <button
-            disabled={people.length < 50}
-            onClick={() => setOffset(offset + 50)}
-          >
-            Next
-          </button>
-        </section>
-        <section className="card">
-          {selected ? (
-            <>
-              <h2>{selected.username}</h2>
-              {manage && (
-                <>
-                  <label>
-                    Role
-                    <select
-                      value={role}
-                      onChange={(e) => setRole(e.target.value)}
-                    >
-                      {roles.map((r) => (
-                        <option key={r}>{r}</option>
-                      ))}
-                    </select>
-                  </label>
+        <section className="card directory-card">
+          <div className="directory-card-heading">
+            <div>
+              <p className="card-kicker">Team members</p>
+              <h2>Directory</h2>
+            </div>
+            <span className="directory-dot" aria-hidden="true" />
+          </div>
+
+          <div className="directory-list">
+            {people.map((p) => {
+              const isExpanded = expandedId === p.user_id;
+              const isSelected = selected?.user_id === p.user_id;
+              return (
+                <div
+                  className={`directory-item${isExpanded ? " is-expanded" : ""}`}
+                  key={p.user_id}
+                >
+                  {/* Accordion trigger */}
                   <button
-                    disabled={busy}
-                    onClick={() =>
-                      run(
-                        () =>
-                          api(
-                            `/users/${selected.user_id}/role`,
-                            json({ role }, "PATCH"),
-                          ),
-                        "Role updated.",
-                      )
-                    }
+                    className="directory-person"
+                    type="button"
+                    aria-expanded={isExpanded}
+                    onClick={() => expand(p)}
                   >
-                    Save role
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        await api(
-                          `/users/${selected.user_id}/status`,
-                          json({ is_active: !selected.is_active }, "PATCH"),
-                        );
-                        setSelected({
-                          ...selected,
-                          is_active: !selected.is_active,
-                        });
-                      }, "Account status updated.")
-                    }
-                  >
-                    {selected.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                  <label>
-                    Temporary password
-                    <PasswordInput
-                      autoComplete="new-password"
-                      value={password}
-                      minLength={12}
-                      maxLength={128}
-                      onChange={setPassword}
-                    />
-                  </label>
-                  <button
-                    disabled={busy || password.length < 12}
-                    onClick={() =>
-                      run(
-                        () =>
-                          api(
-                            `/users/${selected.user_id}/reset-password`,
-                            json({ temporary_password: password }),
-                          ),
-                        "Password reset; user must change it on next login.",
-                      )
-                    }
-                  >
-                    Reset password
-                  </button>
-                </>
-              )}
-              {can(user, "assignments") && (
-                <>
-                  <h3>Company assignments</h3>
-                  {selected.assignments.map((id) => (
-                    <p key={id}>
-                      {clients.find((c) => c.client_id === id)?.client_name ||
-                        id}{" "}
-                      <button
-                        disabled={busy}
-                        onClick={() => assignment(id, true)}
+                    <span className="directory-avatar">
+                      {(p.full_name || p.username).slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="directory-person-copy">
+                      <strong>{p.full_name || p.username}</strong>
+                      <span>{p.job_title || p.username}</span>
+                    </span>
+                    <span className="directory-meta">
+                      <span className="role-badge">{p.role}</span>
+                      <span
+                        className={`status-badge ${
+                          p.is_active ? "is-active" : "is-inactive"
+                        }`}
                       >
-                        Revoke
-                      </button>
-                    </p>
-                  ))}
-                  <label>
-                    Company
-                    <select
-                      value={client}
-                      onChange={(e) => setClient(e.target.value)}
-                    >
-                      <option value="">Choose company</option>
-                      {clients.map((c) => (
-                        <option key={c.client_id} value={c.client_id}>
-                          {c.client_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    disabled={busy || !client}
-                    onClick={() => assignment(client, false)}
-                  >
-                    Assign company
+                        {p.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </span>
+                    <span className="accordion-chevron" aria-hidden="true">
+                      {isExpanded ? "−" : "+"}
+                    </span>
                   </button>
-                </>
-              )}
-            </>
-          ) : manage ? (
+
+                  {/* Accordion body — inline manage panel */}
+                  <div className="directory-expand">
+                    <div className="directory-expand-inner">
+
+                      {/* ── Top bar: username ── */}
+                      <div className="inline-manage-topbar">
+                        <p className="directory-expand-username">
+                          @{p.username}
+                        </p>
+                      </div>
+
+                      {manage && isSelected && (
+                        <>
+                          {/* ── Role ── */}
+                          <div className="inline-manage-section">
+                            <p className="inline-manage-section-title">Role</p>
+                            <div className="inline-manage-field-row">
+                              <label className="inline-manage-field">
+                                <span className="im-label-text">System role</span>
+                                <select
+                                  value={role}
+                                  onChange={(e) => setRole(e.target.value)}
+                                >
+                                  {roles.map((r) => (
+                                    <option key={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="button button-secondary"
+                                disabled={busy}
+                                onClick={() =>
+                                  run(
+                                    () =>
+                                      api(
+                                        `/users/${p.user_id}/role`,
+                                        json({ role }, "PATCH"),
+                                      ),
+                                    "Role updated.",
+                                  )
+                                }
+                              >
+                                Save role
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* ── Reset password ── */}
+                          <div className="inline-manage-section">
+                            <p className="inline-manage-section-title">
+                              Reset password
+                            </p>
+                            <div className="inline-manage-field-row">
+                              <label className="inline-manage-field">
+                                <span className="im-label-text">
+                                  Temporary password
+                                </span>
+                                <span className="im-password-wrap">
+                                  <PasswordInput
+                                    autoComplete="new-password"
+                                    value={password}
+                                    minLength={12}
+                                    maxLength={128}
+                                    onChange={setPassword}
+                                  />
+                                </span>
+                              </label>
+                              <button
+                                className="button button-secondary"
+                                disabled={busy || password.length < 12}
+                                onClick={() =>
+                                  run(
+                                    () =>
+                                      api(
+                                        `/users/${p.user_id}/reset-password`,
+                                        json({ temporary_password: password }),
+                                      ),
+                                    "Password reset; user must change it on next login.",
+                                  )
+                                }
+                              >
+                                Reset password
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── Company assignments ── */}
+                      {can(user, "assignments") && isSelected && (
+                        <div className="inline-manage-section">
+                          <p className="inline-manage-section-title">
+                            Company assignments
+                          </p>
+
+                          {selected!.assignments.length > 0 && (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                              }}
+                            >
+                              {selected!.assignments.map((id) => (
+                                <div
+                                  key={id}
+                                  className="inline-manage-revoke-row"
+                                >
+                                  <span>
+                                    {clients.find((c) => c.client_id === id)
+                                      ?.client_name || id}
+                                  </span>
+                                  <button
+                                    className="button button-secondary"
+                                    disabled={busy}
+                                    onClick={() => assignment(id, true)}
+                                  >
+                                    Revoke
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="inline-manage-field-row">
+                            <label className="inline-manage-field">
+                              <span className="im-label-text">Add company</span>
+                              <select
+                                value={client}
+                                onChange={(e) => setClient(e.target.value)}
+                              >
+                                <option value="">Choose company</option>
+                                {clients.map((c) => (
+                                  <option key={c.client_id} value={c.client_id}>
+                                    {c.client_name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              className="button button-primary"
+                              disabled={busy || !client}
+                              onClick={() => assignment(client, false)}
+                            >
+                              Assign
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {!people.length && (
+              <p className="directory-empty">No accounts match your search.</p>
+            )}
+          </div>
+
+          <div className="directory-pagination">
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            >
+              Previous
+            </button>
+            <span className="directory-page-number" aria-current="page">
+              {currentPage}
+            </span>
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={!hasNextPage}
+              onClick={() => setCurrentPage((page) => page + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Create Account Modal ────────────────────────────────────── */}
+      {isModalOpen && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-account-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsModalOpen(false);
+          }}
+        >
+          <div className="modal-panel">
+            <div className="modal-header">
+              <h2 id="create-account-title">Create account</h2>
+              <button
+                className="modal-close"
+                type="button"
+                aria-label="Close"
+                onClick={() => setIsModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
             <form className="management-form" onSubmit={create}>
-              <h2>Create account</h2>
               <label>
                 Username
                 <input
@@ -295,7 +508,10 @@ export default function Organization({ user }: { user: User }) {
               </label>
               <label>
                 System role
-                <select value={role} onChange={(e) => setRole(e.target.value)}>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                >
                   {roles.map((r) => (
                     <option key={r}>{r}</option>
                   ))}
@@ -328,13 +544,25 @@ export default function Organization({ user }: { user: User }) {
                   </select>
                 </label>
               )}
-              <button disabled={busy}>Create account</button>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="button button-primary"
+                  disabled={busy}
+                >
+                  Create account
+                </button>
+              </div>
             </form>
-          ) : (
-            <p>Select an account to manage its assignments.</p>
-          )}
-        </section>
-      </div>
+          </div>
+        </div>
       )}
     </section>
   );

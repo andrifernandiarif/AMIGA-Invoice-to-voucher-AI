@@ -52,13 +52,19 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
     grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
     file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h6",
+    receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6 M9 12h6",
+    template: "M4 4h16v16H4z M8 8h8 M8 12h8 M8 16h5",
     check: "m5 12 4 4L19 6",
     upload: "M12 16V3 m-5 5 5-5 5 5 M4 16v4h16v-4",
     arrow: "M5 12h14 m-5-5 5 5-5 5",
     search: "M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
     clock: "M12 8v4l3 2 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
+    chart: "M4 19V5 M4 19h16 M7 15l3-4 3 2 5-7",
+    users: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+    building: "M4 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17 M16 9h3a1 1 0 0 1 1 1v11 M8 7h4 M8 11h4 M8 15h4 M9 21v-3h2v3",
     alert: "M12 9v4 m0 4h.01 M10 3 1 19h22L14 3z",
     logout: "M9 3H3v18h6 M9 12h12 m-4-4 4 4-4 4",
+    person: "M20 21a8 8 0 0 0-16 0 M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
     plus: "M12 5v14 M5 12h14",
     chevron: "m6 9 6 6 6-6",
     menu: "M4 6h16 M4 12h16 M4 18h16",
@@ -1708,36 +1714,36 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           )}
           {can(user, "voucher") && (
             <NavLink to="/vouchers">
-              <Icon name="file" />
+              <Icon name="receipt" />
               Vouchers
             </NavLink>
           )}
           {can(user, "templates") && (
             <NavLink to="/templates">
-              <Icon name="file" />
+              <Icon name="template" />
               Voucher templates
             </NavLink>
           )}
           <NavLink to="/account">
-            <Icon name="file" />
+            <Icon name="person" />
             Your account
           </NavLink>
 
           {(can(user, "users") || can(user, "assignments")) && (
             <NavLink to="/users">
-              <Icon name="grid" />
-              People & assignments
+              <Icon name="users" />
+              People & Assignments
             </NavLink>
           )}
           {can(user, "metrics") && (
             <NavLink to="/metrics">
-              <Icon name="clock" />
+              <Icon name="chart" />
               Performance
             </NavLink>
           )}
           {can(user, "clients") && (
             <NavLink to="/clients">
-              <Icon name="grid" />
+              <Icon name="building" />
               Companies
             </NavLink>
           )}
@@ -1771,7 +1777,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
                     role="menuitem"
                     onClick={() => setAccountMenuOpen(false)}
                   >
-                    Your account
+                    <Icon name="person" size={16} /> Your account
                   </Link>
                   <button
                     type="button"
