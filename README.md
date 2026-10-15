@@ -14,10 +14,9 @@ Start the backend from its own directory so `.env` is loaded correctly:
 
 ```sh
 cd backend
-source .venv/bin/activate
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m alembic upgrade head
+.venv/bin/python -m uvicorn app.main:app --reload --port 8000
 ```
 
 Configure `backend/.env` with `DATABASE_URL`, S3 bucket/region and AWS credentials, and `JWT_SECRET`. Use `EXTRACTION_PROVIDER=mock` for the existing mock extraction provider, or configure Bedrock for live extraction. The application needs PostgreSQL and S3; the mock extraction provider does not replace these services. Existing active users need active client assignments. Voucher generation uses the active editable voucher template, or seeds the bundled template on the first approval. WeasyPrint's native dependencies must be installed.
@@ -184,3 +183,15 @@ Upload the source PDFs together in one request. Bedrock extracts each source ind
 Duplicate copies/pages with the same vendor and invoice number are consolidated; conflicting copies and mixed currencies fail explicitly rather than producing a misleading combined amount. Invalid model output is retried as a processing failure instead of becoming a successful empty draft. Migration `0013` adds source invoice snapshots.
 
 Client PIC, Intake Support and Super Admin can use **Retry extraction** (`POST /requests/{id}/retry-extraction`) for failed requests or older empty drafts. Existing extracted/edited/submitted values are protected from replacement. Original evidence and upload metadata are reused, and the retry is audited.
+
+
+## Extraction and database connection recovery
+
+The API checks pooled PostgreSQL connections before reuse, recycles them after 240 seconds, and bounds connection/query waits. `DB_CONNECT_TIMEOUT_SECONDS` (10), `DB_COMMAND_TIMEOUT_SECONDS` (30), and `DB_POOL_RECYCLE_SECONDS` (240) can be set in `backend/.env`. A disconnected initial authentication read is rolled back and retried once before any endpoint writes run. Continued connection failures return HTTP 503 with a retry message; uploads, approvals, and other write operations are never automatically replayed.
+
+Extraction reads evidence metadata in a short transaction, releases its database session while downloading from S3 and calling Bedrock, then opens a fresh transaction to save the result. S3 streaming reads run off the event loop. Internal PDF document names use Bedrock-compatible characters, independently of the original upload filenames. The optional RQ worker uses the same connection setup and avoids sharing asyncpg connections between its event loops.
+
+After updating, restart the backend using the interpreter in `backend/.venv`. If an older extraction failed with `No module named 'pypdf'`, install `backend/requirements.txt` into that same environment and use **Retry extraction** on the failed request. No new database migration is required for these connection/extraction fixes.
+
+
+First uploads retry failed extraction attempts automatically, using the same saved evidence, up to three attempts. Request detail includes safe `extraction` progress (`status`, `attempt`, `max_attempts`, `message`) so the workspace distinguishes automatic retry progress from a final failure. Local PDF text extraction is optional for Bedrock: when the worker cannot import `pypdf`, the original PDF document bytes are still sent to the model. `pypdf` remains a required installation dependency for upload page counting. A successful retry clears the previous worker error and preserves one draft.

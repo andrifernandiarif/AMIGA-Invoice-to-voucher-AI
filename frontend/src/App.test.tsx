@@ -406,3 +406,24 @@ it("clears Amiga AI drafts when the user signs out and signs in again", async ()
   );
   expect(screen.getByLabelText("Your question")).toHaveValue("");
 });
+
+it.each([
+  ["PROCESSING", "PENDING", "Retrying extraction automatically (attempt 2 of 3). Your original uploaded documents are saved."],
+  ["EXCEPTION", "FAILED", "Extraction could not finish after 3 attempts. Your original uploaded documents are saved. Retry extraction to try again."],
+])("shows extraction progress for %s without calling every failure unusable values", async (status, jobStatus, message) => {
+  const rid = "12345678-1234-1234-1234-123456789abc";
+  window.history.replaceState({}, "", `/requests/${rid}`);
+  sessionStorage.setItem("amiga_access_token", "token");
+  vi.mocked(fetch).mockImplementation(async url => response(
+    url === "/api/auth/me" ? { user_id: "pic", username: "pic", role: "CLIENT_PIC", permissions: ["upload", "refine", "track"] }
+    : String(url).endsWith("/tax-options") ? [] : {
+      request_id: rid, client_id: "c", status, flags: [], rejection_reason: null, evidence_files: [], draft: null,
+      extraction: { status: jobStatus, attempt: jobStatus === "FAILED" ? 3 : 2, max_attempts: 3, message },
+    }
+  ) as Response);
+  render(<App />);
+  await screen.findByText(message);
+  expect(screen.queryByText(/Extraction did not produce usable values/)).not.toBeInTheDocument();
+  if (status === "PROCESSING") expect(screen.queryByRole("button", { name: "Retry extraction" })).not.toBeInTheDocument();
+  else expect(screen.getByRole("button", { name: "Retry extraction" })).toBeInTheDocument();
+});

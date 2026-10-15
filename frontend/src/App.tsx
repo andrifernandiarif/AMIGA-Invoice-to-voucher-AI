@@ -1203,6 +1203,12 @@ function RequestView({ user }: { user: User }) {
                 ))}
               </section>
             )}
+          {data.extraction?.message &&
+            ["PENDING", "IN_PROGRESS"].includes(data.extraction.status) && (
+              <section className="card" role="status">
+                {data.extraction.message}
+              </section>
+            )}
           {can(user, "upload") &&
             (data.status === "EXCEPTION" ||
               (data.status === "READY_FOR_REFINEMENT" &&
@@ -1210,8 +1216,8 @@ function RequestView({ user }: { user: User }) {
                 !data.draft?.line_items.length)) && (
               <section className="card">
                 <p>
-                  Extraction did not produce usable values. Retry using the
-                  original uploaded documents.
+                  {data.extraction?.message ||
+                    "Extraction could not finish. Your original uploaded documents are saved; retry extraction to try again."}
                 </p>
                 <button
                   className="primary"

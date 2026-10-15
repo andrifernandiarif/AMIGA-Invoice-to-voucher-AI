@@ -19,6 +19,7 @@ from app.models.client import Client
 from app.models.client_assignment import ClientAssignment
 from app.models.draft import Draft
 from app.models.evidence_file import EvidenceFile
+from app.models.extraction_job import ExtractionJob
 from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.models.telemetry import MetricType, TelemetryRecord
@@ -28,6 +29,7 @@ from app.repositories.user_repository import user_repository
 from app.schemas.request_schemas import FieldRevisionResponse
 from app.schemas.user_schemas import UserResponse
 from app.services.audit_service import log_event
+from app.services.extraction_status import describe_extraction
 from app.services.manual_tax import load_assignments, assignment_dict, totals, refresh_assignments
 from app.storage import StorageError, file_store
 
@@ -181,8 +183,13 @@ async def detail(
             ],
             "payment_details": fields(payment, "bank_account_number bank_name payment_reference") if payment else None,
         }
+    job = await db.scalar(
+        select(ExtractionJob).where(ExtractionJob.request_id == request_id)
+        .order_by(ExtractionJob.created_at.desc(), ExtractionJob.job_id.desc()).limit(1)
+    )
     return {
         "request_id": req.request_id,
+        "extraction": describe_extraction(job),
         "client_id": req.client_id,
         "status": req.status,
         "flags": req.flags or [],

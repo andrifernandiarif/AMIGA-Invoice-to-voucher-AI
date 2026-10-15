@@ -1,11 +1,16 @@
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Database — NeonDB (postgresql+asyncpg with SSL)
     DATABASE_URL: str = "postgresql+asyncpg://amiga:amiga@localhost:5432/amiga_db"
+
+    DB_CONNECT_TIMEOUT_SECONDS: float = Field(default=10, gt=0)
+    DB_COMMAND_TIMEOUT_SECONDS: float = Field(default=30, gt=0)
+    DB_POOL_RECYCLE_SECONDS: int = Field(default=240, ge=1)
 
     # Redis — optional, only needed if using RQ background worker
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -35,8 +40,7 @@ class Settings(BaseSettings):
     # Business rules
     CALCULATION_TOLERANCE: str = "0.01"
     AUTHORIZATION_DISCLAIMER: str = (
-        "This voucher is prepared for client review purposes only. "
-        "Payment authorization remains with the client."
+        "This voucher is prepared for client review purposes only. " "Payment authorization remains with the client."
     )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

@@ -1,33 +1,28 @@
 # backend/app/dependencies.py
 
+import logging
 import uuid
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
-from fastapi import Request, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth import decode_token
-from app.config import settings
+from app.database import (
+    DATABASE_UNAVAILABLE,
+    create_database_engine,
+    is_database_unavailable,
+    read_authenticated_user,
+    rollback_safely,
+)
 from app.models.user import User
 from app.repositories.request_repository import request_repository as _req_repo
 from app.repositories.user_repository import user_repository
 
 # ── Database engine & session factory ─────────────────────────────────────────
-# NeonDB/asyncpg requires ssl — pass via connect_args when URL contains ssl=require
-_db_url = settings.DATABASE_URL
-_connect_args = {}
-if "ssl=require" in _db_url or "sslmode=require" in _db_url:
-    # asyncpg wants ssl in connect_args, not the query string
-    import ssl as _ssl
-    _ssl_ctx = _ssl.create_default_context()
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = _ssl.CERT_NONE
-    _connect_args = {"ssl": _ssl_ctx}
-    # strip ssl params from URL so asyncpg doesn't get confused
-    _db_url = _db_url.split("?")[0]
-
-engine = create_async_engine(_db_url, echo=False, future=True, connect_args=_connect_args)
+logger = logging.getLogger(__name__)
+engine = create_database_engine()
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
@@ -39,8 +34,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
-            await session.rollback()
+        except Exception as exc:
+            await rollback_safely(session)
+            if is_database_unavailable(exc):
+                logger.warning("Database temporarily unavailable (%s)", type(exc).__name__)
+                raise HTTPException(503, DATABASE_UNAVAILABLE, headers={"Retry-After": "1"}) from exc
             raise
 
 
@@ -64,7 +62,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = await user_repository.find_by_id(db, user_id)
+    user = await read_authenticated_user(db, user_id, user_repository)
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,6 +90,7 @@ def require_role(*roles: str):
 
     Raises HTTPException(403) if the user's role is not in `roles`.
     """
+
     async def _check_role(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role.value != "SUPER_ADMIN" and current_user.role.value not in roles:
             raise HTTPException(
@@ -114,6 +113,7 @@ def require_client_assignment(request_id: uuid.UUID):
 
     Raises HTTPException(403) with no client data if the check fails.
     """
+
     async def _check_assignment(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
@@ -125,9 +125,7 @@ def require_client_assignment(request_id: uuid.UUID):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not authorized to access Requests for this client.",
             )
-        active = await user_repository.is_assignment_active(
-            db, current_user.user_id, req.client_id
-        )
+        active = await user_repository.is_assignment_active(db, current_user.user_id, req.client_id)
         if not active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

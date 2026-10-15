@@ -41,13 +41,17 @@ class S3FileStore:
             raise StorageError(f"Failed to upload '{key}' to S3: {exc}") from exc
 
     async def download(self, key: str) -> bytes:
-        loop = asyncio.get_event_loop()
+        def read_object():
+            response = self._client.get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            try:
+                return body.read()
+            finally:
+                body.close()
+
         try:
-            response = await loop.run_in_executor(
-                None,
-                partial(self._client.get_object, Bucket=self.bucket, Key=key),
-            )
-            return response["Body"].read()
+            # StreamingBody.read performs network I/O too, not just get_object.
+            return await asyncio.to_thread(read_object)
         except (BotoCoreError, ClientError) as exc:
             raise StorageError(f"Failed to download '{key}' from S3: {exc}") from exc
 

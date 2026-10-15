@@ -90,6 +90,12 @@ export interface VoucherTotals {
   calculated_from_items: boolean;
 }
 export interface Detail {
+  extraction?: {
+    status: "PENDING" | "IN_PROGRESS" | "DONE" | "FAILED";
+    attempt: number;
+    max_attempts: number;
+    message: string | null;
+  } | null;
   voucher_purpose?: string | null;
   approvers?: { full_name: string; job_title: string }[];
   voucher_number?: string | null;

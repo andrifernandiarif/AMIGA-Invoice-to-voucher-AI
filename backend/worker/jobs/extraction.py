@@ -19,9 +19,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.config import settings
+from app.database import create_database_engine
 from app.models.audit import AuditEvent, AuditEventType
 from app.models.draft import Draft, ExtractionStatus
 from app.models.invoice_fields import HeaderFields, LineExtractionStatus, LineItem, PaymentDetails
@@ -41,7 +41,7 @@ _session_factory = None
 def _get_session_factory() -> async_sessionmaker:
     global _engine, _session_factory
     if _session_factory is None:
-        _engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
+        _engine = create_database_engine(null_pool=True)
         _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     return _session_factory
 
@@ -69,9 +69,11 @@ async def _run_extraction(job: ExtractionJob) -> None:
             await db.commit()
             return
 
-        from app.services.extraction_worker import _fetch_evidence_files
+        from app.services.extraction_worker import _download_evidence_files, _load_evidence_sources
 
-        evidence_files = await _fetch_evidence_files(db, request_id)
+        sources = await _load_evidence_sources(db, request_id)
+        await db.commit()
+        evidence_files = await _download_evidence_files(sources)
 
         # ── Call extraction provider ───────────────────────────────────────────
         result: ExtractionResult = await provider.extract(evidence_files, request_id)
@@ -91,6 +93,8 @@ async def _run_extraction(job: ExtractionJob) -> None:
             )
             db.add(draft)
             await db.flush()
+
+        draft.source_invoices = [invoice.model_dump(mode="json") for invoice in result.source_invoices]
 
         # ── Persist HeaderFields ───────────────────────────────────────────────
         h = result.header

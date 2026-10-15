@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import rollback_safely
 from app.dependencies import AsyncSessionLocal
 from app.models.audit import AuditEventType
 from app.models.draft import Draft, ExtractionStatus
@@ -30,18 +31,18 @@ from app.models.invoice_fields import (
     LineItem,
     PaymentDetails,
 )
-from app.models.request import RequestStatus
+from app.models.request import InvoiceRequest, RequestStatus
 from app.providers import get_extraction_provider
 from app.repositories.request_repository import request_repository
 from app.schemas.extraction import ExtractionResult
 from app.services.audit_service import log_event
+from app.services.extraction_status import MAX_RETRIES
 from app.services.telemetry_service import TelemetryService
 from app.storage import file_store
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 2
-MAX_RETRIES = 3
 
 
 async def _claim_pending_job(db: AsyncSession) -> ExtractionJob | None:
@@ -166,128 +167,122 @@ async def _persist_extraction(
     return draft, header_orm, line_item_orms, payment_orm
 
 
-async def _fetch_evidence_files(
-    db: AsyncSession,
-    request_id: uuid.UUID,
-) -> list[tuple[bytes, str]]:
-    """
-    Fetch all evidence file bytes for a Request from S3.
-    Prioritizes EvidenceFile rows (multi-file support), falls back to
-    the primary invoice_file_key (backward compatibility).
-    Returns list of (bytes, content_type) tuples.
-    """
-    # First, try to get evidence files from the evidence_files table
+async def _load_evidence_sources(db: AsyncSession, request_id: uuid.UUID) -> list[tuple[str, str]]:
+    """Read storage metadata only; callers can release the connection before S3."""
     stmt = select(EvidenceFile).where(EvidenceFile.request_id == request_id).order_by(EvidenceFile.upload_order)
-    result = await db.execute(stmt)
-    evidence_files = list(result.scalars().all())
-
-    if evidence_files:
-        # Download all files from S3
-        downloaded: list[tuple[bytes, str]] = []
-        for ef in evidence_files:
-            file_bytes = await file_store.download(ef.file_key)
-            downloaded.append((file_bytes, ef.content_type))
-        return downloaded
-
-    # Fallback: fetch single file via Request.invoice_file_key
+    evidence = list((await db.scalars(stmt)).all())
+    if evidence:
+        return [(ef.file_key, ef.content_type) for ef in evidence]
     req = await request_repository.get_by_id(db, request_id)
     if req is None:
         raise ValueError(f"Request {request_id} not found")
-
-    file_bytes = await file_store.download(req.invoice_file_key)
     key_lower = req.invoice_file_key.lower()
-    if key_lower.endswith(".pdf"):
-        ct = "application/pdf"
-    elif key_lower.endswith(".png"):
-        ct = "image/png"
-    else:
-        ct = "image/jpeg"
+    content_type = (
+        "application/pdf"
+        if key_lower.endswith(".pdf")
+        else ("image/png" if key_lower.endswith(".png") else "image/jpeg")
+    )
+    return [(req.invoice_file_key, content_type)]
 
-    return [(file_bytes, ct)]
+
+async def _download_evidence_files(sources: list[tuple[str, str]]) -> list[tuple[bytes, str]]:
+    return [(await file_store.download(key), content_type) for key, content_type in sources]
+
+
+async def _fetch_evidence_files(db: AsyncSession, request_id: uuid.UUID) -> list[tuple[bytes, str]]:
+    """Compatibility helper; workers use separate metadata and download phases."""
+    return await _download_evidence_files(await _load_evidence_sources(db, request_id))
 
 
 async def _process_job(job: ExtractionJob) -> None:
     """Process a single IN_PROGRESS extraction job end-to-end."""
     start_time = datetime.now(UTC)
 
-    async with AsyncSessionLocal() as db:
-        try:
-            # Fetch the request to get page count and request_id
+    try:
+        async with AsyncSessionLocal() as db:
             req = await request_repository.get_by_id(db, job.request_id)
             if req is None:
                 logger.error("ExtractionJob %s: request %s not found", job.job_id, job.request_id)
                 return
+            sources = await _load_evidence_sources(db, job.request_id)
+            await db.commit()  # End the read transaction before any remote I/O.
 
-            # Fetch all evidence files from S3
-            evidence_files = await _fetch_evidence_files(db, job.request_id)
+        evidence_files = await _download_evidence_files(sources)
+        provider = get_extraction_provider()
+        result = await provider.extract(evidence_files=evidence_files, request_id=job.request_id)
+        if not result.header or not any(item.line_total is not None for item in result.line_items):
+            raise ValueError("Extraction returned no usable invoice values. Please retry extraction.")
 
-            # Run extraction
-            provider = get_extraction_provider()
-            result = await provider.extract(
-                evidence_files=evidence_files,
-                request_id=job.request_id,
-            )
+        async with AsyncSessionLocal() as db:
+            try:
+                # Reload live state on a fresh checkout after the potentially long model call.
+                req = await db.scalar(
+                    select(InvoiceRequest)
+                    .where(InvoiceRequest.request_id == job.request_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if req is None:
+                    raise ValueError("Request was removed during extraction.")
+                # Idempotency check: if Draft already exists, skip creation
+                existing_draft = await db.scalar(select(Draft).where(Draft.request_id == job.request_id))
 
-            if not result.header or not any(item.line_total is not None for item in result.line_items):
-                raise ValueError("Extraction returned no usable invoice values. Please retry extraction.")
+                if not existing_draft:
+                    await _persist_extraction(db, job.request_id, result)
 
-            # Idempotency check: if Draft already exists, skip creation
-            existing_draft = await db.scalar(select(Draft).where(Draft.request_id == job.request_id))
+                from app.services.advisory_validation import validate_request
 
-            if not existing_draft:
-                await _persist_extraction(db, job.request_id, result)
-
-            from app.services.advisory_validation import validate_request
-
-            await validate_request(db, req)
-            await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REFINEMENT)
-            await log_event(
-                db,
-                AuditEventType.STATUS_CHANGED,
-                payload={"from": "PROCESSING", "to": "READY_FOR_REFINEMENT", "job_id": str(job.job_id)},
-                request_id=job.request_id,
-                actor_id=None,
-            )
-
-            # Telemetry - record extraction duration and check for SLA breach
-            end_time = datetime.now(UTC)
-            record = await TelemetryService.record_extraction_duration(
-                db=db,
-                job_id=job.job_id,
-                start_time=start_time,
-                end_time=end_time,
-                page_count=req.invoice_page_count,
-            )
-
-            # Log breach event if SLA was exceeded
-            if record.is_breach:
-                logger.warning(
-                    "ExtractionJob %s exceeded SLA threshold: duration=%dms > threshold=%dms (page_count=%s)",
-                    job.job_id,
-                    record.duration_ms,
-                    record.breach_threshold_ms,
-                    req.invoice_page_count,
+                await validate_request(db, req)
+                await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REFINEMENT)
+                await log_event(
+                    db,
+                    AuditEventType.STATUS_CHANGED,
+                    payload={"from": "PROCESSING", "to": "READY_FOR_REFINEMENT", "job_id": str(job.job_id)},
+                    request_id=job.request_id,
+                    actor_id=None,
                 )
 
-            # Mark job as DONE
-            await db.execute(
-                update(ExtractionJob)
-                .where(ExtractionJob.job_id == job.job_id)
-                .values(status=ExtractionJobStatus.DONE, completed_at=end_time)
-            )
-            await db.commit()
-            logger.info(
-                "ExtractionJob %s completed → request %s status=%s, duration=%dms",
-                job.job_id,
-                job.request_id,
-                RequestStatus.READY_FOR_REFINEMENT.value,
-                record.duration_ms,
-            )
+                # Telemetry - record extraction duration and check for SLA breach
+                end_time = datetime.now(UTC)
+                record = await TelemetryService.record_extraction_duration(
+                    db=db,
+                    job_id=job.job_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    page_count=req.invoice_page_count,
+                )
 
-        except Exception as exc:  # noqa: BLE001
-            await db.rollback()
-            logger.exception("ExtractionJob %s failed: %s", job.job_id, exc)
-            await _handle_failure(job, str(exc))
+                # Log breach event if SLA was exceeded
+                if record.is_breach:
+                    logger.warning(
+                        "ExtractionJob %s exceeded SLA threshold: duration=%dms > threshold=%dms (page_count=%s)",
+                        job.job_id,
+                        record.duration_ms,
+                        record.breach_threshold_ms,
+                        req.invoice_page_count,
+                    )
+
+                # Mark job as DONE
+                await db.execute(
+                    update(ExtractionJob)
+                    .where(ExtractionJob.job_id == job.job_id)
+                    .values(status=ExtractionJobStatus.DONE, completed_at=end_time, error_detail=None)
+                )
+                await db.commit()
+                logger.info(
+                    "ExtractionJob %s completed → request %s status=%s, duration=%dms",
+                    job.job_id,
+                    job.request_id,
+                    RequestStatus.READY_FOR_REFINEMENT.value,
+                    record.duration_ms,
+                )
+
+            except Exception:
+                await rollback_safely(db)
+                raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("ExtractionJob %s failed (%s)", job.job_id, type(exc).__name__)
+        await _handle_failure(job, str(exc))
 
 
 async def _handle_failure(job: ExtractionJob, error_detail: str) -> None:

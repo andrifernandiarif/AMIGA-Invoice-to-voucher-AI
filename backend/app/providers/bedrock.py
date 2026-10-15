@@ -96,7 +96,15 @@ EXTRACTION RULES:
 
 def _pdf_text(evidence_files):
     from io import BytesIO
-    from pypdf import PdfReader
+    if not any(content_type == "application/pdf" for _, content_type in evidence_files):
+        return []
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        # Text is an optional aid: the original PDF is already sent to the model.
+        # A worker without the local parser can still extract native PDF documents.
+        logger.warning("Local PDF text augmentation unavailable; using original PDF input")
+        return []
 
     texts = []
     for index, (data, content_type) in enumerate(evidence_files, 1):
@@ -142,7 +150,7 @@ def _build_nova_request(evidence_files: list[tuple[bytes, str]]) -> dict:
                 {
                     "document": {
                         "format": "pdf",
-                        "name": f"invoice_{i+1}",
+                        "name": f"invoice-{i+1}",
                         "source": {"bytes": file_bytes},
                     }
                 }
