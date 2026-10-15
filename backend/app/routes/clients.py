@@ -4,17 +4,19 @@ Client management endpoints.
 GET  /clients        — list all active clients (any authenticated user)
 POST /clients        — create a new client (any authenticated user, for dev convenience)
 """
+
 from __future__ import annotations
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_user, get_db, require_role
 from app.models.client import Client
+from app.services.voucher_identity import default_client_code
 from app.models.client_assignment import ClientAssignment
 from app.models.user import User
 
@@ -24,12 +26,14 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 class ClientOut(BaseModel):
     client_id: uuid.UUID
     client_name: str
+    client_code: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class ClientCreate(BaseModel):
-    client_name: str
+    client_name: str = Field(min_length=1, max_length=300)
+    client_code: str | None = Field(default=None, pattern=r"^[A-Z0-9][A-Z0-9-]{0,39}$")
 
 
 @router.get("", response_model=list[ClientOut])
@@ -39,9 +43,12 @@ async def list_clients(
 ):
     """Return all active clients. Use the client_id when calling POST /requests."""
     result = await db.execute(
-        select(Client).join(ClientAssignment, ClientAssignment.client_id == Client.client_id)
-        .where(Client.is_active.is_(True), ClientAssignment.is_active.is_(True),
-               ClientAssignment.user_id == _user.user_id).order_by(Client.client_name)
+        select(Client)
+        .join(ClientAssignment, ClientAssignment.client_id == Client.client_id)
+        .where(
+            Client.is_active.is_(True), ClientAssignment.is_active.is_(True), ClientAssignment.user_id == _user.user_id
+        )
+        .order_by(Client.client_name)
     )
     return result.scalars().all()
 
@@ -54,14 +61,17 @@ async def create_client(
 ):
     """Create a new client company."""
     # Check for duplicate name
-    existing = await db.execute(
-        select(Client).where(Client.client_name == body.client_name)
-    )
+    existing = await db.execute(select(Client).where(Client.client_name == body.client_name))
     if existing.scalar_one_or_none():
         raise HTTPException(409, f"Client '{body.client_name}' already exists.")
 
+    client_id = uuid.uuid4()
+    code = body.client_code or default_client_code(body.client_name, client_id)
+    if await db.scalar(select(Client).where(Client.client_code == code)):
+        raise HTTPException(409, "Company code already exists.")
     client = Client(
-        client_id=uuid.uuid4(),
+        client_id=client_id,
+        client_code=code,
         client_name=body.client_name,
         is_active=True,
     )
@@ -69,3 +79,8 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
     return client
+
+
+@router.get("/all", response_model=list[ClientOut])
+async def all_clients(db: AsyncSession = Depends(get_db), admin: User = Depends(require_role("SYSTEM_ADMIN"))):
+    return (await db.scalars(select(Client).where(Client.is_active.is_(True)).order_by(Client.client_name))).all()

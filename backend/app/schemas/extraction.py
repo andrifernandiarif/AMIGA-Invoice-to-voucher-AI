@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 class HeaderFieldsSchema(BaseModel):
     vendor_name: str | None = None
+    voucher_name: str | None = None
     invoice_number: str | None = None
     invoice_date: date | None = None
     currency: str | None = None          # ISO 4217, e.g. "IDR"

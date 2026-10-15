@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, String
+from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, String, JSON
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -38,6 +38,11 @@ class InvoiceRequest(Base):
     invoice_file_key: Mapped[str] = mapped_column(String(500), nullable=False)
     invoice_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     refinement_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    voucher_purpose: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    approvers: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    voucher_number: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    voucher_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitter_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

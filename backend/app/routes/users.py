@@ -2,6 +2,11 @@
 
 import uuid
 
+from datetime import UTC, datetime
+from pydantic import BaseModel, Field
+from app.models.client import Client
+from app.services.signatures import normalize_signature
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,10 +33,21 @@ async def create_user(
     admin: User = Depends(require_role("SYSTEM_ADMIN")),
 ):
     """System Admin creates a new user account with at least one client assignment."""
+    signature = normalize_signature(body.signature_data)
+    if not body.full_name.strip() or not body.job_title.strip():
+        raise HTTPException(422, "Enter the full name and professional role.")
+    for assignment in body.assignments:
+        client = await db.get(Client, assignment.client_id)
+        if not client or not client.is_active:
+            raise HTTPException(422, "Choose an active client assignment.")
     try:
         user = await user_repository.create_user(db, body.username, body.role)
     except DuplicateUsernameError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    user.full_name = body.full_name.strip()
+    user.job_title = body.job_title.strip()
+    user.signature_data = signature
 
     for a in body.assignments:
         await user_repository.add_assignment(db, user.user_id, a.client_id)
@@ -48,6 +64,39 @@ async def create_user(
         },
         actor_id=admin.user_id,
     )
+    return user
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=300)
+    job_title: str = Field(min_length=1, max_length=200)
+    signature_data: str | None = Field(default=None, max_length=3000000)
+    remove_signature: bool = False
+
+
+@router.get("/me/profile")
+async def profile(user: User = Depends(get_current_user)):
+    return {"full_name": user.full_name or "", "job_title": user.job_title or "", "signature_data": user.signature_data}
+
+
+@router.put("/me/profile", response_model=UserResponse)
+async def save_profile(body: ProfileUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    if not body.full_name.strip() or not body.job_title.strip():
+        raise HTTPException(422, "Enter your full name and professional role.")
+    user.full_name = body.full_name.strip()
+    user.job_title = body.job_title.strip()
+    if body.signature_data is not None:
+        user.signature_data = normalize_signature(body.signature_data)
+    elif body.remove_signature:
+        user.signature_data = None
+    user.updated_at = datetime.now(UTC)
+    await log_event(
+        db,
+        AuditEventType.USER_MODIFIED,
+        payload={"action": "PROFILE_UPDATED", "user_id": str(user.user_id), "has_signature": bool(user.signature_data)},
+        actor_id=user.user_id,
+    )
+    await db.flush()
     return user
 
 

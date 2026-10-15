@@ -97,6 +97,7 @@ async def _run_extraction(job: ExtractionJob) -> None:
         header = HeaderFields(
             header_id=uuid.uuid4(),
             draft_id=draft.draft_id,
+            voucher_name=h.voucher_name if h else None,
             vendor_name=h.vendor_name if h else None,
             invoice_number=h.invoice_number if h else None,
             invoice_date=h.invoice_date if h else None,

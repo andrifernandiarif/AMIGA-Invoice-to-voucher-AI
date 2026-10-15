@@ -1430,3 +1430,40 @@ a:focus-visible {
   background: #f2ebff;
   color: #9a76bb;
 }
+
+.voucher-metadata textarea,
+.upload-layout textarea {
+  min-height: 90px;
+  width: 100%;
+  resize: vertical;
+}
+.voucher-metadata {
+  margin-top: 20px;
+}
+.signature-preview {
+  display: block;
+  max-width: 280px;
+  max-height: 140px;
+  object-fit: contain;
+  margin: 16px 0;
+  border: 1px solid #e9e5f2;
+  padding: 8px;
+}
+.account-form {
+  max-width: 900px;
+}
+.account-form fieldset {
+  border: 1px solid #e9e5f2;
+  border-radius: 12px;
+  margin: 24px 0;
+  padding: 16px;
+}
+.account-form .assignment-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+.account-form .assignment-option input {
+  width: auto;
+}

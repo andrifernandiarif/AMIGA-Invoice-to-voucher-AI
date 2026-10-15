@@ -17,6 +17,8 @@ from app.models.invoice_fields import HeaderFields, LineItem, LineExtractionStat
 from app.models.request import RequestStatus
 from app.models.user import UserRole
 from app.models.voucher import VoucherPDF, VoucherTemplate
+from app.routes.users import router as users_router
+from app.routes.clients import router as clients_router
 from app.routes.admin import router as admin_router
 from app.routes.refinement import router as refinement_router
 from app.routes.requests import router as requests_router
@@ -27,7 +29,15 @@ from tests.test_approval import _seed_base, db_session  # noqa: F401
 
 async def client_for(db, user):
     app = FastAPI()
-    for router in (workspace_router, requests_router, voucher_router, admin_router, refinement_router):
+    for router in (
+        workspace_router,
+        requests_router,
+        voucher_router,
+        admin_router,
+        refinement_router,
+        users_router,
+        clients_router,
+    ):
         app.include_router(router)
 
     async def database():
@@ -55,6 +65,11 @@ async def client_for(db, user):
 async def seed(db):
     data = await _seed_base(db, request_flags=["MISSING_EVIDENCE", "POSSIBLE_DUPLICATE", "CALC_DISCREPANCY"])
     now = datetime.now(timezone.utc)
+    data["uploader"].full_name = "Rina Setiawan"
+    data["uploader"].job_title = "Admin"
+    data["client"].client_code = "ACME"
+    data["request"].voucher_purpose = "Biaya operasional"
+    data["request"].approvers = [{"full_name": "Budi Santoso", "job_title": "BOD"}]
     db.add(
         ClientAssignment(
             user_id=data["uploader"].user_id, client_id=data["client"].client_id, is_active=True, assigned_at=now
@@ -268,6 +283,8 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
                 data={
                     "client_id": str(data["client"].client_id),
                     "request_date": "2026-10-14",
+                    "voucher_purpose": "Biaya operasional",
+                    "approvers": '[{"full_name":"Budi Santoso","job_title":"BOD"}]',
                 },
                 files=[
                     ("files", ("invoice.pdf", b"%PDF-invoice", "application/pdf")),
@@ -291,6 +308,9 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
     async with await client_for(db_session, data["reviewer"]) as client:
         detail = await client.get(f"/requests/{request_id}")
         assert len(detail.json()["evidence_files"]) == 2
+        assert detail.json()["voucher_purpose"] == "Biaya operasional"
+        assert detail.json()["approvers"] == [{"full_name": "Budi Santoso", "job_title": "BOD"}]
+        assert detail.json()["voucher_number"] is None
     with patch(
         "app.services.extraction_worker.file_store.download", AsyncMock(side_effect=[b"%PDF-invoice", b"PNG-receipt"])
     ):
@@ -324,10 +344,7 @@ async def test_voucher_information_and_item_date_can_be_saved(db_session):
     data = await seed(db_session)
     async with await client_for(db_session, data["reviewer"]) as client:
         for path, value in [
-            ("header.voucher_number", "VCR-001"),
             ("header.voucher_name", "Nama pemohon"),
-            ("header.voucher_purpose", "Biaya perjalanan"),
-            ("header.voucher_period", "Oktober 2026"),
             ("line_items.0.item_date", "2026-10-14"),
         ]:
             response = await client.put(
@@ -335,7 +352,7 @@ async def test_voucher_information_and_item_date_can_be_saved(db_session):
             )
             assert response.status_code == 200, response.text
         detail = (await client.get(f'/requests/{data["request"].request_id}')).json()["draft"]
-        assert detail["header_fields"]["voucher_purpose"] == "Biaya perjalanan"
+        assert detail["header_fields"]["voucher_name"] == "Nama pemohon"
         assert detail["line_items"][0]["item_date"] == "2026-10-14"
 
 

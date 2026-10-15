@@ -37,11 +37,14 @@ export const json = (body: unknown, method = "POST"): RequestInit => ({
 export interface User {
   user_id: string;
   username: string;
+  full_name?: string | null;
+  job_title?: string | null;
   role: string;
 }
 export interface Client {
   client_id: string;
   client_name: string;
+  client_code?: string | null;
 }
 export interface Invoice {
   request_id: string;
@@ -80,6 +83,11 @@ export interface VoucherTotals {
   calculated_from_items: boolean;
 }
 export interface Detail {
+  voucher_purpose?: string | null;
+  approvers?: { full_name: string; job_title: string }[];
+  voucher_number?: string | null;
+  voucher_created_at?: string | null;
+  submitter?: { full_name?: string; job_title?: string };
   request_id: string;
   client_id: string;
   status: string;

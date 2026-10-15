@@ -164,8 +164,13 @@ export default function TemplateEditor() {
               <code>{"{{ voucher_period }}"}</code>, and{" "}
               <code>{"{{ voucher_nominal }}"}</code>. Use{" "}
               <code>line_items_table</code> for the item table and{" "}
-              <code>{"{{ voucher_line_total }}"}</code> for its total. Signature
-              blocks should stay blank.
+              <code>{"{{ voucher_line_total }}"}</code> for its calculated
+              total. Nominal is the extracted document amount. Use{" "}
+              <code>submitter.full_name</code>, <code>submitter.job_title</code>
+              , and optional <code>submitter.signature_data</code> for Diajukan
+              Oleh. Loop over <code>approvers</code> (full_name, job_title) for
+              Disetujui Oleh; leave their signature spaces empty. Number and
+              date are generated automatically.
             </p>
           </div>
           <label>

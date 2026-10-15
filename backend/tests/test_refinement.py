@@ -63,8 +63,9 @@ async def test_refine_tax_submit_and_approve_workflow(db_session):
             assert response.status_code == 200, response.text
         html = renderer.HTML.call_args.kwargs["string"]
         assert "PPh 23 2% (biaya pajak)" in html
-        assert "Rp 30,60" in html
-        assert "99" not in html.split('<table class="header">')[1].split("</table>")[0]
+        assert "Rp 99" in html  # Nominal is the extracted document total.
+        assert 'class="amount">30,60</td>' in html  # Calculated TOTAL includes assigned tax.
+        assert "Rp 99" in html.split('<table class="header">')[1].split("</table>")[0]
     assert data["request"].status == RequestStatus.AMIGA_REVIEWED
     assert (await db_session.execute(select(FieldRevision))).scalars().all()
 

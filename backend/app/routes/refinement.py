@@ -18,6 +18,7 @@ from app.models.invoice_fields import HeaderFields, LineItem
 from app.models.request import RequestStatus
 from app.models.tax_assignment import IndonesianTaxType, TaxAssignment
 from app.models.user import User
+from app.schemas.voucher_metadata import VoucherMetadata
 from app.repositories.request_repository import request_repository
 from app.routes.workspace import accessible_request, ensure_editable
 from app.services.audit_service import log_event
@@ -116,6 +117,31 @@ async def assign_tax(
     return {"tax_assignment": new}
 
 
+@router.put("/requests/{request_id}/voucher-metadata")
+async def update_metadata(
+    request_id: uuid.UUID,
+    body: VoucherMetadata,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("CLIENT_PIC")),
+):
+    req = await accessible_request(request_id, db, user, lock=True)
+    if req.status != RequestStatus.READY_FOR_REFINEMENT:
+        raise HTTPException(409, "Upload details can only be changed before submitting for review.")
+    old = {"voucher_purpose": req.voucher_purpose, "approvers": req.approvers}
+    req.voucher_purpose = body.voucher_purpose
+    req.approvers = [person.model_dump() for person in body.approvers]
+    req.updated_at = datetime.now(UTC)
+    await log_event(
+        db,
+        AuditEventType.FIELD_REVISED,
+        payload={"field_path": "voucher_metadata", "old_value": old, "new_value": body.model_dump()},
+        request_id=request_id,
+        actor_id=user.user_id,
+    )
+    await db.flush()
+    return body
+
+
 @router.post("/requests/{request_id}/submit-review")
 async def submit_review(
     request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_role("CLIENT_PIC"))
@@ -123,6 +149,12 @@ async def submit_review(
     req = await accessible_request(request_id, db, user, lock=True)
     if req.status != RequestStatus.READY_FOR_REFINEMENT:
         raise HTTPException(409, "This request is not awaiting client refinement.")
+    if not req.voucher_purpose or not req.approvers:
+        raise HTTPException(422, "Complete the expense purpose and external approvers before submitting.")
+    VoucherMetadata(voucher_purpose=req.voucher_purpose, approvers=req.approvers)
+    uploader = await db.get(User, req.uploader_id)
+    if not uploader.full_name or not uploader.job_title:
+        raise HTTPException(422, "The submitter must complete their full name and professional role in Account.")
     draft = await db.scalar(select(Draft).where(Draft.request_id == request_id))
     if not draft:
         raise HTTPException(409, "Extraction has not produced a draft.")
@@ -136,6 +168,11 @@ async def submit_review(
         raise HTTPException(422, "Enter a line total for each item before submitting.")
     if Decimal(summary["voucher_total"]) < 0:
         raise HTTPException(422, "Withholding cannot make the voucher total negative.")
+    req.submitter_snapshot = {
+        "full_name": uploader.full_name,
+        "job_title": uploader.job_title,
+        "signature_data": uploader.signature_data or "",
+    }
     req.refinement_submitted_at = datetime.now(UTC)
     req.status = RequestStatus.READY_FOR_REVIEW
     req.updated_at = req.refinement_submitted_at

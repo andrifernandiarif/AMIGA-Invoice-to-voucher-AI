@@ -64,4 +64,4 @@ app.include_router(voucher_router)
 
 @app.get("/health")
 async def health_check() -> dict:
-    return {"status": "ok", "workflow": "client-refinement-v2"}
+    return {"status": "ok", "workflow": "voucher-schema-v3"}

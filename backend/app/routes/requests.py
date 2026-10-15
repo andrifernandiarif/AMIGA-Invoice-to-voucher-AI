@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import uuid
+import json
+from pydantic import ValidationError
+from app.schemas.voucher_metadata import VoucherMetadata
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List
@@ -50,6 +53,8 @@ async def upload_invoice(
     files: List[UploadFile],
     client_id: uuid.UUID = Form(..., description="Use GET /clients to find your client_id"),
     request_date: date = Form(..., description="Invoice date, e.g. 2026-10-14"),
+    voucher_purpose: str = Form(..., max_length=1000),
+    approvers: str = Form(..., max_length=12000, description="JSON array of full_name and job_title"),
     request_type: str = Form(default="standard", description="Type of request (default: standard)"),
     channel: str = Form(default="upload", description="Submission channel (default: upload)"),
     db: AsyncSession = Depends(get_db),
@@ -70,6 +75,15 @@ async def upload_invoice(
         active = await user_repository.is_assignment_active(db, current_user.user_id, client_id)
         if not active:
             raise HTTPException(403, "You are not authorized to submit for the selected client.")
+
+    try:
+        metadata = VoucherMetadata(voucher_purpose=voucher_purpose, approvers=json.loads(approvers))
+    except (ValidationError, ValueError, TypeError):
+        raise HTTPException(
+            422, "Enter the expense purpose and at least one approver's full name and professional role."
+        )
+    if not current_user.full_name or not current_user.job_title:
+        raise HTTPException(409, "Complete your full name and professional role in Account before uploading.")
 
     validated: list[tuple[str, bytes, str]] = []
     for f in files:
@@ -117,6 +131,9 @@ async def upload_invoice(
         invoice_page_count=None,
     )
 
+    req.voucher_purpose = metadata.voucher_purpose
+    req.approvers = [person.model_dump() for person in metadata.approvers]
+
     for evidence in evidence_meta:
         db.add(
             EvidenceFile(
@@ -141,6 +158,8 @@ async def upload_invoice(
             "uploader_id": str(current_user.user_id),
             "upload_timestamp": datetime.now(timezone.utc).isoformat(),
             "evidence_files": evidence_meta,
+            "voucher_purpose": req.voucher_purpose,
+            "approvers": req.approvers,
         },
         request_id=request_id,
         actor_id=current_user.user_id,

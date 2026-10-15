@@ -2,12 +2,14 @@
 """
 Pydantic v2 response schemas for voucher-related endpoints.
 """
+
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.request import RequestStatus
 
@@ -17,6 +19,7 @@ class LineItemPreview(BaseModel):
 
     line_item_id: uuid.UUID
     sequence_number: int
+    item_date: str | None = None
     description: Optional[str] = None
     quantity: Optional[str] = None
     unit: Optional[str] = None
@@ -33,6 +36,7 @@ class LineItemPreview(BaseModel):
 class HeaderFieldsPreview(BaseModel):
     """Approved header-level invoice fields."""
 
+    voucher_name: Optional[str] = None
     vendor_name: Optional[str] = None
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
@@ -70,6 +74,11 @@ class VoucherPreviewResponse(BaseModel):
     header_fields: Optional[HeaderFieldsPreview] = None
     line_items: list[LineItemPreview]
     payment_details: Optional[PaymentDetailsPreview] = None
+    voucher_number: str | None = None
+    voucher_created_at: datetime | None = None
+    voucher_purpose: str | None = None
+    approvers: list[dict[str, str]] = Field(default_factory=list)
+    submitter: dict[str, str] = Field(default_factory=dict)
     authorization_disclaimer: str
 
     model_config = {"from_attributes": True}

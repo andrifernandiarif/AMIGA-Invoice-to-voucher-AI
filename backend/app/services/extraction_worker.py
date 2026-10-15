@@ -111,6 +111,7 @@ async def _persist_extraction(
         header_orm = HeaderFields(
             header_id=uuid.uuid4(),
             draft_id=draft.draft_id,
+            voucher_name=h.voucher_name if h else None,
             vendor_name=h.vendor_name,
             invoice_number=h.invoice_number,
             invoice_date=h.invoice_date,

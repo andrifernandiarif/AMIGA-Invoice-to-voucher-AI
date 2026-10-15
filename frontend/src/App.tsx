@@ -22,6 +22,11 @@ import {
 import TaxEditor from "./components/TaxEditor";
 import { TaxOption } from "./api";
 import TemplateEditor from "./components/TemplateEditor";
+import Account from "./components/Account";
+import VoucherMetadata, {
+  Approver,
+  ApproverFields,
+} from "./components/VoucherMetadata";
 import VoucherDocument from "./components/VoucherDocument";
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
@@ -441,6 +446,9 @@ function Upload() {
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [client, setClient] = useState("");
+  const [approvers, setApprovers] = useState<Approver[]>([
+    { full_name: "", job_title: "" },
+  ]);
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -475,6 +483,7 @@ function Upload() {
     setError("");
     const form = new FormData(e.currentTarget);
     form.delete("files");
+    form.set("approvers", JSON.stringify(approvers));
     files.forEach((f) => form.append("files", f));
     try {
       const result = await api<{ request_id: string }>("/requests", {
@@ -528,6 +537,7 @@ function Upload() {
                 {clients.map((c) => (
                   <option key={c.client_id} value={c.client_id}>
                     {c.client_name}
+                    {c.client_code ? ` (${c.client_code})` : ""}
                   </option>
                 ))}
               </select>
@@ -556,6 +566,24 @@ function Upload() {
               </select>
             </label>
           </div>
+          <label>
+            Peruntukan / Expense purpose
+            <textarea
+              name="voucher_purpose"
+              required
+              maxLength={1000}
+              placeholder="Purpose or allocation of this expense"
+            />
+          </label>
+          <h2 className="section-title">Disetujui Oleh</h2>
+          <ApproverFields value={approvers} onChange={setApprovers} />
+          <p className="muted">
+            Diajukan Oleh uses your{" "}
+            <Link to="/account">
+              account full name, professional role, and optional signature
+            </Link>
+            . Voucher number and creation time are generated after approval.
+          </p>
           <h2 className="section-title">Invoice & supporting evidence</h2>
           <label
             className={`dropzone ${dragging ? "dragging" : ""}`}
@@ -635,8 +663,8 @@ function Upload() {
             ],
             [
               "02",
-              "A manual review",
-              "A finance reviewer compares the extracted values with your evidence, then accepts or rejects the request.",
+              "Refine and submit",
+              "Check extracted fields, assign item taxes, and submit to Finance Reviewer for acceptance or rejection.",
             ],
             [
               "03",
@@ -668,6 +696,7 @@ function RequestView({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [changes, setChanges] = useState<Record<string, string>>({});
+  const [metadataDirty, setMetadataDirty] = useState(false);
   const [taxDirty, setTaxDirty] = useState<Record<string, boolean>>({});
   const [taxOptions, setTaxOptions] = useState<TaxOption[]>([]);
   const handleTaxDirty = useCallback(
@@ -711,7 +740,11 @@ function RequestView({ user }: { user: User }) {
     return () => clearInterval(timer);
   }, [load]);
   useEffect(() => {
-    if (!Object.keys(changes).length && !Object.values(taxDirty).some(Boolean))
+    if (
+      !metadataDirty &&
+      !Object.keys(changes).length &&
+      !Object.values(taxDirty).some(Boolean)
+    )
       return;
     const guard = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -719,7 +752,7 @@ function RequestView({ user }: { user: User }) {
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [changes, taxDirty]);
+  }, [changes, taxDirty, metadataDirty]);
   const evidenceKey = data?.evidence_files[evidenceIndex]?.file_key;
   useEffect(() => {
     setEvidenceUrl("");
@@ -827,7 +860,9 @@ function RequestView({ user }: { user: User }) {
         data.status === "READY_FOR_REVIEW"));
 
   const dirty =
-    Object.keys(changes).length > 0 || Object.values(taxDirty).some(Boolean);
+    metadataDirty ||
+    Object.keys(changes).length > 0 ||
+    Object.values(taxDirty).some(Boolean);
   useEffect(() => {
     if (!dirty) return;
     const guard = (event: MouseEvent) => {
@@ -1144,24 +1179,80 @@ function RequestView({ user }: { user: User }) {
                     </div>
                     <h3 className="section-title">Voucher information</h3>
                     <p className="muted voucher-help">
-                      Nominal uses the voucher calculation below. Leave Nomor
-                      blank to generate a voucher number; Nama defaults to the
-                      vendor, and Tanggal/Periode to the invoice date.
+                      Nominal comes from the extracted total amount. The bottom
+                      TOTAL includes assigned taxes. Number and creation time
+                      are generated once on approval.
                     </p>
                     <div className="form-grid">
-                      {[
-                        ["voucher_number", "Nomor"],
-                        ["voucher_name", "Nama"],
-                        ["voucher_purpose", "Peruntukan"],
-                        ["voucher_period", "Tanggal/Periode"],
-                      ].map(([key, name]) =>
-                        field(
-                          `header.${key}`,
-                          data.draft?.header_fields?.[key] ?? null,
-                          name,
-                        ),
+                      <label>
+                        Nomor
+                        <input
+                          disabled
+                          value={
+                            data.voucher_number || "Generated after approval"
+                          }
+                        />
+                      </label>
+                      <label>
+                        Tanggal/Periode
+                        <input
+                          disabled
+                          value={
+                            data.voucher_created_at
+                              ? new Date(
+                                  data.voucher_created_at,
+                                ).toLocaleString("id-ID", {
+                                  timeZone: "Asia/Jakarta",
+                                }) + " WIB"
+                              : "Set when the voucher is generated"
+                          }
+                        />
+                      </label>
+                      {field(
+                        "header.voucher_name",
+                        data.draft?.header_fields?.voucher_name ??
+                          data.draft?.header_fields?.vendor_name ??
+                          null,
+                        "Nama",
                       )}
                     </div>
+                    <h3>Diajukan Oleh</h3>
+                    <div className="form-grid">
+                      <label>
+                        Submitter full name
+                        <input
+                          disabled
+                          value={
+                            data.submitter?.full_name ||
+                            "Complete the uploader’s account"
+                          }
+                        />
+                      </label>
+                      <label>
+                        Submitter professional role
+                        <input
+                          disabled
+                          value={
+                            data.submitter?.job_title ||
+                            "Complete the uploader’s account"
+                          }
+                        />
+                      </label>
+                    </div>
+                    <VoucherMetadata
+                      key={`${requestId}-${data.voucher_purpose}-${JSON.stringify(data.approvers)}`}
+                      requestId={requestId!}
+                      purpose={data.voucher_purpose || ""}
+                      approvers={data.approvers || []}
+                      editable={
+                        user.role === "CLIENT_PIC" &&
+                        data.status === "READY_FOR_REFINEMENT"
+                      }
+                      onDirty={setMetadataDirty}
+                      onSaved={() => {
+                        void load();
+                      }}
+                    />
                     <h3 className="section-title">Line items</h3>
                     {data.draft.line_items.map((item, i) => (
                       <div className="line-item-editor" key={item.line_item_id}>
@@ -1318,6 +1409,16 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
               Voucher templates
             </NavLink>
           )}
+          <NavLink to="/account">
+            <Icon name="file" />
+            Your account
+          </NavLink>
+          {user.role === "SYSTEM_ADMIN" && (
+            <NavLink to="/users">
+              <Icon name="file" />
+              Create user
+            </NavLink>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-tip">
@@ -1360,6 +1461,19 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
         </header>
         <main>
           <Routes>
+            <Route path="/account" element={<Account key="profile" />} />
+            <Route
+              path="/users"
+              element={
+                user.role === "SYSTEM_ADMIN" ? (
+                  <Account key="create" create />
+                ) : (
+                  <div className="card">
+                    User creation is available to system administrators.
+                  </div>
+                )
+              }
+            />
             <Route path="/" element={<Dashboard user={user} />} />
             <Route
               path="/vouchers"

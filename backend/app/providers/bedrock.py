@@ -44,6 +44,7 @@ REQUIRED JSON SCHEMA:
 {
   "header": {
     "vendor_name": "<string or null>",
+    "voucher_name": "<person or entity associated with the expense, or null>",
     "invoice_number": "<string or null>",
     "invoice_date": "<YYYY-MM-DD or null>",
     "currency": "<ISO 4217 e.g. IDR, USD, or null>",
@@ -56,6 +57,7 @@ REQUIRED JSON SCHEMA:
   "line_items": [
     {
       "sequence_number": <integer starting at 1>,
+      "item_date": "<YYYY-MM-DD date applicable to this line, or null>",
       "description": "<string or null>",
       "quantity": <number or null>,
       "unit": "<string e.g. pcs, kg, paket or null>",
@@ -68,7 +70,7 @@ REQUIRED JSON SCHEMA:
     "bank_name": "<string or null>",
     "payment_reference": "<string or null>"
   },
-  "extraction_prompt_version": "bedrock-v1.0",
+  "extraction_prompt_version": "bedrock-v1.1",
   "raw_response": null
 }
 
@@ -79,7 +81,9 @@ EXTRACTION RULES:
 4. sequence_number starts at 1 and increases by 1 for each line item.
 5. Extract EVERY line item visible in the documents.
 6. If multiple documents show the same invoice, merge into one result.
-7. For Indonesian invoices: subtotal is "DPP", tax_amount is "PPN", total_amount is "Total".
+7. Extract the date for each line item when the document provides it; otherwise use null.
+8. voucher_name is the named person or entity associated with the expense; use vendor_name when it is the identified entity. Do not extract voucher numbers, upload purpose, or voucher creation time from the document.
+9. For Indonesian invoices: subtotal is "DPP", tax_amount is "PPN", total_amount is "Total".
 """
 # =============================================================================
 
@@ -233,7 +237,7 @@ class BedrockExtractionProvider(ExtractionProvider):
                 request_id, exc, raw_text,
             )
             result = ExtractionResult(
-                extraction_prompt_version="bedrock-v1.0",
+                extraction_prompt_version="bedrock-v1.1",
                 raw_response=raw_text,
             )
 

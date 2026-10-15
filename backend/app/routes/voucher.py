@@ -49,6 +49,7 @@ from app.schemas.voucher_schemas import (
 )
 from app.services.audit_service import log_event
 from app.services.pdf_service import render_html_pdf
+from app.services.voucher_identity import prepare_voucher_identity
 from app.services.voucher_context import build_voucher_context
 from app.services.template_service import load_active_template, seed_default_template
 from app.storage import StorageError, file_store
@@ -130,6 +131,7 @@ async def get_voucher_preview(
     header_preview: HeaderFieldsPreview | None = None
     if header is not None:
         header_preview = HeaderFieldsPreview(
+            voucher_name=header.voucher_name,
             vendor_name=header.vendor_name,
             invoice_number=header.invoice_number,
             invoice_date=str(header.invoice_date) if header.invoice_date is not None else None,
@@ -162,6 +164,7 @@ async def get_voucher_preview(
             LineItemPreview(
                 line_item_id=item.line_item_id,
                 sequence_number=item.sequence_number,
+                item_date=str(item.item_date) if item.item_date else None,
                 description=item.description,
                 quantity=str(item.quantity) if item.quantity is not None else None,
                 unit=item.unit,
@@ -194,6 +197,11 @@ async def get_voucher_preview(
         header_fields=header_preview,
         line_items=line_item_previews,
         payment_details=payment_preview,
+        voucher_number=req.voucher_number,
+        voucher_created_at=req.voucher_created_at,
+        voucher_purpose=req.voucher_purpose,
+        approvers=req.approvers or [],
+        submitter={k: v for k, v in (req.submitter_snapshot or {}).items() if k != "signature_data"},
         authorization_disclaimer=settings.AUTHORIZATION_DISCLAIMER,
     )
 
@@ -229,7 +237,7 @@ async def generate_voucher_pdf(
     Returns 201 with voucher_pdf_id, file_key, generated_at.
     """
     # ── 0. Load request ───────────────────────────────────────────────────────
-    result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id))
+    result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id).with_for_update())
     req = result.scalar_one_or_none()
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
@@ -299,6 +307,7 @@ async def generate_voucher_pdf(
     # ── 5. Build Jinja2 context ───────────────────────────────────────────────
     disclaimer_text = settings.AUTHORIZATION_DISCLAIMER
 
+    await prepare_voucher_identity(db, req)
     context = build_voucher_context(req, header, line_items, payment, tax_map, disclaimer_text)
 
     # ── Start timer (after data load, before render + PDF) ───────────────────

@@ -1,6 +1,7 @@
 """Map reviewed invoice data into editable Indonesian voucher templates."""
 
-from datetime import date
+from datetime import date, datetime, UTC
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 from app.services.manual_tax import TAX_LABELS, effect_of, totals
@@ -21,6 +22,16 @@ def display_date(value) -> str:
     if isinstance(value, str):
         value = date.fromisoformat(value)
     return value.strftime("%d/%m/%Y")
+
+
+def display_created_at(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M WIB")
 
 
 def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer):
@@ -109,13 +120,15 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         items_total = total_amount
     return {
         # Indonesian voucher header. Purpose and item dates stay blank until entered.
-        "voucher_number": (h.voucher_number if h else None)
-        or f"VCR-{req.request_date:%Y%m%d}-{req.request_id.hex[:12].upper()}",
+        "voucher_number": getattr(req, "voucher_number", None) or "",
         "voucher_name": (h.voucher_name if h else None) or (h.vendor_name or "" if h else ""),
-        "voucher_purpose": h.voucher_purpose or "" if h else "",
-        "voucher_period": (h.voucher_period if h else None)
-        or display_date((h.invoice_date if h else None) or req.request_date),
-        "voucher_nominal": f"{currency_label} {number(total_amount)}".strip() if total_amount is not None else "",
+        "voucher_purpose": getattr(req, "voucher_purpose", None) or "",
+        "voucher_period": display_created_at(getattr(req, "voucher_created_at", None)),
+        "voucher_nominal": f"{currency_label} {number(h.total_amount)}".strip()
+        if h and h.total_amount is not None
+        else "",
+        "submitter": getattr(req, "submitter_snapshot", None) or {},
+        "approvers": getattr(req, "approvers", None) or [],
         "voucher_line_total": number(items_total),
         # Keep legacy variables available to previously saved custom templates.
         "vendor_name": h.vendor_name or "" if h else "",

@@ -14,6 +14,9 @@ class AssignmentIn(BaseModel):
 
 class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=200)
+    full_name: str = Field(min_length=1, max_length=300)
+    job_title: str = Field(min_length=1, max_length=200)
+    signature_data: str | None = Field(default=None, max_length=3000000)
     role: UserRole
     assignments: list[AssignmentIn] = Field(..., min_length=1)
 
@@ -30,6 +33,8 @@ class UserResponse(BaseModel):
     user_id: uuid.UUID
     username: str
     role: UserRole
+    full_name: str | None = None
+    job_title: str | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

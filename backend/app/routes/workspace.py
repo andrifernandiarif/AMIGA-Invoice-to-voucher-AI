@@ -89,6 +89,8 @@ async def requests(db: AsyncSession = Depends(get_db), user: User = Depends(get_
 @router.get("/requests/{request_id}")
 async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     req = await accessible_request(request_id, db, user)
+    uploader = await db.get(User, req.uploader_id)
+    submitter = req.submitter_snapshot or {"full_name": uploader.full_name or "", "job_title": uploader.job_title or ""}
     evidence = (
         (
             await db.execute(
@@ -151,6 +153,11 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
         "tax_assignments": tax_data,
         "totals": total_data,
         "refinement_submitted_at": req.refinement_submitted_at,
+        "voucher_purpose": req.voucher_purpose,
+        "approvers": req.approvers or [],
+        "voucher_number": req.voucher_number,
+        "voucher_created_at": req.voucher_created_at,
+        "submitter": {k: v for k, v in submitter.items() if k != "signature_data"},
         "evidence_files": [fields(e, "evidence_id file_key original_filename content_type") for e in evidence],
     }
 
@@ -206,7 +213,7 @@ async def edit(
         "header": (
             HeaderFields,
             "vendor_name invoice_number invoice_date currency subtotal total_amount "
-            "tax_amount fee_amount rounding_adj voucher_number voucher_name voucher_purpose voucher_period",
+            "tax_amount fee_amount rounding_adj voucher_name",
         ),
         "payment": (PaymentDetails, "bank_account_number bank_name payment_reference"),
         "line_items": (LineItem, "item_date description quantity unit unit_price line_total"),

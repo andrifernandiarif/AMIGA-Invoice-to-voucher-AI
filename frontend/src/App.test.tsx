@@ -207,3 +207,83 @@ it("lets Client PIC refine a draft and locks editing after submitting for financ
     screen.queryByRole("button", { name: "Accept & generate voucher" }),
   ).not.toBeInTheDocument();
 });
+
+it("uploads purpose and multiple named client approvers with evidence", async () => {
+  window.history.replaceState({}, "", "/upload");
+  sessionStorage.setItem("amiga_access_token", "token");
+  const pic = {
+    user_id: "u",
+    username: "pic",
+    role: "CLIENT_PIC",
+    full_name: "Rina",
+    job_title: "Admin",
+  };
+  vi.mocked(fetch).mockImplementation(
+    async (url, init) =>
+      response(
+        url === "/api/auth/me"
+          ? pic
+          : url === "/api/clients"
+            ? [{ client_id: "c", client_name: "Acme", client_code: "ACME" }]
+            : url === "/api/requests" && init?.method === "POST"
+              ? { request_id: "new-request" }
+              : url === "/api/requests/new-request"
+                ? {
+                    request_id: "new-request",
+                    status: "QUEUED",
+                    evidence_files: [],
+                    draft: null,
+                    flags: [],
+                  }
+                : [],
+      ) as Response,
+  );
+  render(<App />);
+  await screen.findByRole("option", { name: "Acme (ACME)" });
+  await userEvent.selectOptions(screen.getByLabelText("Client"), "c");
+  await userEvent.type(
+    screen.getByLabelText("Peruntukan / Expense purpose"),
+    "Office supplies",
+  );
+  await userEvent.type(screen.getAllByLabelText("Full name")[0], "Budi");
+  await userEvent.type(
+    screen.getAllByLabelText("Professional role / Jabatan")[0],
+    "BOD",
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "+ Add another approver" }),
+  );
+  await userEvent.type(screen.getAllByLabelText("Full name")[1], "Sari");
+  await userEvent.type(
+    screen.getAllByLabelText("Professional role / Jabatan")[1],
+    "Manager",
+  );
+  await userEvent.upload(
+    screen.getByLabelText("Choose invoice evidence"),
+    new File(["%PDF"], "invoice.pdf", { type: "application/pdf" }),
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Submit for extraction" }),
+  );
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([url, init]) => url === "/api/requests" && init?.method === "POST",
+        ),
+    ).toBe(true),
+  );
+  const call = vi
+    .mocked(fetch)
+    .mock.calls.find(
+      ([url, init]) => url === "/api/requests" && init?.method === "POST",
+    );
+  const form = call![1]!.body as FormData;
+  expect(form.get("voucher_purpose")).toBe("Office supplies");
+  expect(JSON.parse(form.get("approvers") as string)).toEqual([
+    { full_name: "Budi", job_title: "BOD" },
+    { full_name: "Sari", job_title: "Manager" },
+  ]);
+  expect(form.getAll("files")).toHaveLength(1);
+});
