@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { PageSkeleton } from "./Skeleton";
 interface Template {
   template_id: string;
   version: string;
@@ -104,7 +105,7 @@ export default function TemplateEditor() {
         </div>
       )}
       {loading ? (
-        <div className="card empty-state">Loading templates…</div>
+        <PageSkeleton variant="form" />
       ) : (
         <form className="card template-editor" onSubmit={save}>
           <div className="form-grid">

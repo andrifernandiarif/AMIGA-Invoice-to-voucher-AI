@@ -1,6 +1,75 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, Client, Detail, json } from "../api";
 
+export function PasswordInput({
+  value,
+  onChange,
+  autoComplete,
+  required = false,
+  minLength,
+  maxLength,
+  ariaLabel,
+  placeholder,  
+  
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  ariaLabel?: string;
+  placeholder?: string; 
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="password-input">
+      <input
+        type={visible ? "text" : "password"}
+        autoComplete={autoComplete}
+        aria-label={ariaLabel}
+        required={required}
+        minLength={minLength}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <button
+        type="button"
+        className="password-visibility"
+        aria-label={visible ? "Hide password" : "Show password"}
+        onClick={() => setVisible((current) => !current)}
+      >
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {visible ? (
+            <>
+              <path d="m3 3 18 18" />
+              <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+              <path d="M9.9 4.3A10.8 10.8 0 0 1 12 4c5.5 0 9.5 5 9.5 5s-1.2 1.5-3.2 2.9M6.2 6.2C3.8 7.7 2.5 9 2.5 9s4 5 9.5 5c.7 0 1.3-.1 1.9-.2" />
+            </>
+          ) : (
+            <>
+              <path d="M2.5 9s4-5 9.5-5 9.5 5 9.5 5-4 5-9.5 5-9.5-5-9.5-5Z" />
+              <circle cx="12" cy="9" r="2" />
+            </>
+          )}
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 export function PasswordForm({
   forced = false,
   onChanged,
@@ -37,30 +106,31 @@ export function PasswordForm({
       {error && <p role="alert">{error}</p>}
       <label>
         Current password
-        <input
-          type="password"
+        <PasswordInput
           autoComplete="current-password"
           required
           maxLength={128}
+          placeholder="****"
           value={current}
-          onChange={(e) => setCurrent(e.target.value)}
+          onChange={setCurrent}
         />
       </label>
       <label>
         New password
-        <input
-          type="password"
+        <PasswordInput
           autoComplete="new-password"
           required
           minLength={12}
           maxLength={128}
           value={next}
-          onChange={(e) => setNext(e.target.value)}
+          onChange={setNext}
         />
       </label>
-      <button className="primary" disabled={busy}>
-        Change password
-      </button>
+       <div className="form-footer">
+            <button className="primary" disabled={busy}>
+             Change Password
+            </button>
+          </div>
     </form>
   );
 }

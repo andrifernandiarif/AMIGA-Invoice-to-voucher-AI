@@ -70,11 +70,13 @@ export function ApproverFields({
       ))}
       {!disabled && value.length < 12 && (
         <button
-          className="button secondary"
+          className="approver-add-button secondary"
           type="button"
+          aria-label="+ Add another approver"
           onClick={() => onChange([...value, { full_name: "", job_title: "" }])}
         >
-          + Add another approver
+          <span aria-hidden="true">+</span>
+          Add another approver
         </button>
       )}
     </>

@@ -1,5 +1,6 @@
 import { apiFetch } from '../api';
 import { useEffect, useState, useCallback } from 'react';
+import { PageSkeleton } from './Skeleton';
 
 // API response types
 interface HeaderFields {
@@ -77,8 +78,9 @@ const VoucherPreview = ({ requestId }: { requestId: string }) => {
 
   if (isLoading) {
     return (
-      <div className="voucher-preview loading" data-testid="voucher-preview-loading">
-        <p>Loading voucher preview...</p>
+      <div data-testid="voucher-preview-loading">
+        <PageSkeleton variant="content" />
+        <p className="sr-only">Loading voucher preview...</p>
       </div>
     );
   }

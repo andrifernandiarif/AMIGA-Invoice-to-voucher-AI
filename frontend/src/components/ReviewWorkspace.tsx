@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import { PageSkeleton } from './Skeleton';
 
 // Initialize PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -302,9 +303,7 @@ const ReviewWorkspace = ({ requestId }: { requestId: string }) => {
 
   if (isLoading) {
     return (
-      <div className="review-workspace loading">
-        <p>Loading review workspace...</p>
-      </div>
+      <PageSkeleton variant="content" />
     );
   }
 

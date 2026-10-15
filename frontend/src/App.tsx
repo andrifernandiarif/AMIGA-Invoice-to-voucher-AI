@@ -37,6 +37,7 @@ import {
   AllocationPanel,
   MetricsDashboard,
   ClientManager,
+  PasswordInput,
 } from "./components/Operations";
 import Chat from "./components/Chat";
 import Account from "./components/Account";
@@ -45,6 +46,7 @@ import VoucherMetadata, {
   ApproverFields,
 } from "./components/VoucherMetadata";
 import VoucherDocument from "./components/VoucherDocument";
+import { PageSkeleton, Skeleton } from "./components/Skeleton";
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
@@ -117,6 +119,63 @@ function ErrorMessage({ message }: { message: string }) {
     </div>
   ) : null;
 }
+function ConfirmSignOut({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        className="confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="signout-title"
+      >
+        <span className="confirm-modal-icon">
+          <Icon name="logout" size={20} />
+        </span>
+        <h2 id="signout-title">Anda yakin keluar?</h2>
+        <p>Anda akan keluar dari workspace saat ini.</p>
+        <div className="confirm-modal-actions">
+          <button type="button" className="secondary" onClick={onCancel}>
+            Batal
+          </button>
+          <button type="button" className="danger-outline" onClick={onConfirm}>
+            Sign out
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+function roleTitle(role: string) {
+  const titles: Record<string, string> = {
+    CLIENT_PIC: "Client workspace",
+    INTAKE_SUPPORT: "Intake workspace",
+    FINANCE_REVIEWER: "Finance workspace",
+    SERVICE_LEAD: "Service lead workspace",
+    SYSTEM_ADMIN: "System admin workspace",
+    USER_ADMIN: "User administration",
+    SUPER_ADMIN: "Admin workspace",
+  };
+  return titles[role] || "Your workspace";
+}
+
+function userDisplayName(user: User) {
+  return user.full_name?.trim() || user.username;
+}
+
+function userInitials(user: User) {
+  return userDisplayName(user)
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState("");
@@ -179,16 +238,17 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
         </label>
         <label>
           Password
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={setPassword}
             required
+            ariaLabel="Password"
+            placeholder="********"
           />
         </label>
         <button className="primary" disabled={busy}>
-          {busy ? "Signing in…" : "Continue"}
+          {busy ? "Signing in…" : "Sign in"}
           <Icon name="arrow" />
         </button>
       </form>
@@ -259,6 +319,22 @@ function Dashboard({
         .includes(search.toLowerCase()),
   );
   const canUpload = can(user, "upload");
+  if (loading) {
+    return (
+      <>
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">
+              WORKSPACE / {vouchers ? "VOUCHERS" : "OVERVIEW"}
+            </span>
+            <Skeleton className="skeleton-heading" />
+            <Skeleton className="skeleton-line skeleton-line-wide" />
+          </div>
+        </div>
+        <PageSkeleton variant="dashboard" />
+      </>
+    );
+  }
   return (
     <>
       <div className="page-heading">
@@ -267,7 +343,7 @@ function Dashboard({
             WORKSPACE / {vouchers ? "VOUCHERS" : "OVERVIEW"}
           </span>
           <h1>
-            {vouchers ? "Your vouchers" : "Invoice overview"}
+            {vouchers ? "Your vouchers" : roleTitle(user.role)}
             <span className="heading-dot">.</span>
           </h1>
           <p>
@@ -635,6 +711,26 @@ function Upload() {
     setFiles((prev) => [...prev, ...incoming]);
     setError("");
   }
+  function handleDragOver(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(true);
+  }
+  function handleDragLeave(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+  }
+  function handleDrop(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+    addFiles(Array.from(e.dataTransfer.files));
+  }
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    addFiles(Array.from(e.target.files ?? []));
+    e.target.value = "";
+  }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -744,25 +840,20 @@ function Upload() {
           </p>
           <h2 className="section-title">Invoice & supporting evidence</h2>
           <label
-            className={`dropzone ${dragging ? "dragging" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              addFiles(Array.from(e.dataTransfer.files));
-            }}
+            className={`dropzone${dragging ? " dragging" : ""}`}
+            onDragEnter={handleDragOver}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            aria-describedby="evidence-file-help"
           >
-            <span className="empty-icon">
+            <span className="dropzone-icon empty-icon">
               <Icon name="upload" size={26} />
             </span>
-            <strong>
-              Drag your files here, or <span>browse files</span>
+            <strong className="dropzone-title">
+              Drag files here, or <span>browse files</span>
             </strong>
-            <small>
+            <small id="evidence-file-help" className="dropzone-help">
               PDF, PNG or JPEG · Up to 20 MB per file · Maximum 20 files
             </small>
             <input
@@ -770,15 +861,13 @@ function Upload() {
               accept="application/pdf,image/png,image/jpeg"
               multiple
               aria-label="Choose invoice evidence"
-              onChange={(e) => {
-                addFiles(Array.from(e.target.files || []));
-                e.target.value = "";
-              }}
+              onChange={handleFileInput}
             />
           </label>
-          <div className="file-list">
+          {files.length > 0 && (
+          <div className="file-list" aria-label="Selected evidence files">
             {files.map((f, i) => (
-              <div key={`${f.name}-${i}`}>
+              <div className="file-list-item" key={`${f.name}-${i}`}>
                 <Icon name="file" />
                 <span>
                   {f.name}
@@ -797,6 +886,7 @@ function Upload() {
               </div>
             ))}
           </div>
+          )}
           <div className="form-footer">
             <Link className="secondary" to="/">
               Cancel
@@ -1552,6 +1642,8 @@ function RequestView({ user }: { user: User }) {
 function Shell({ user, logout }: { user: User; logout: () => void }) {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1569,11 +1661,20 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
   }, [accountMenuOpen]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <Link to="/" className="wordmark">
           <BrandLogo />
         </Link>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!sidebarCollapsed}
+          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+        >
+          <Icon name="chevron" size={18} />
+        </button>
         <button
           type="button"
           className="mobile-menu-button"
@@ -1584,9 +1685,10 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           <Icon name={mobileMenuOpen ? "close" : "menu"} size={21} />
         </button>
         <div className="workspace-switch">
-          <span className="workspace-avatar">A</span>
+          <span className="workspace-avatar">{userInitials(user)}</span>
           <div>
-            Finance workspace<small>Invoice-to-voucher</small>
+            {userDisplayName(user)}
+            <small>{roleTitle(user.role)}</small>
           </div>
         </div>
         <span className="nav-label">WORKSPACE</span>
@@ -1649,7 +1751,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
       </aside>
       <div className="main-shell">
         <header className="topbar">
-          <span>
+          <span className="topbar-breadcrumb">
             Invoice-to-voucher <span className="topbar-divider">/</span>{" "}
             <strong>Workspace</strong>
           </span>
@@ -1679,7 +1781,10 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={logout}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      setSignOutOpen(true);
+                    }}
                     aria-label="Sign out"
                   >
                     <Icon name="logout" size={16} />
@@ -1696,10 +1801,10 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             <Route
               path="/account"
               element={
-                <>
+                <div className="account-page">
                   <Account key="profile" />
                   <PasswordForm onChanged={logout} />
-                </>
+                </div>
               }
             />
             <Route
@@ -1792,6 +1897,12 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           <span>Prepared with AI. Reviewed by people.</span>
         </footer>
       </div>
+      {signOutOpen && (
+        <ConfirmSignOut
+          onCancel={() => setSignOutOpen(false)}
+          onConfirm={logout}
+        />
+      )}
     </div>
   );
 }

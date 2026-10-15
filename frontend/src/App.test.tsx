@@ -32,7 +32,7 @@ describe("Workspace", () => {
       "Finance-Password-2026",
     );
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByRole("heading", { name: "Invoice overview." });
+    await screen.findByRole("heading", { name: "Finance workspace." });
     expect(sessionStorage.getItem("amiga_access_token")).toBe("test-token");
     const call = vi
       .mocked(fetch)
@@ -69,6 +69,7 @@ describe("Workspace", () => {
     expect(screen.getByText("No matching requests")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /finance/i }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() =>
       expect(
         screen.getByRole("heading", { name: "Sign in to your workspace" }),

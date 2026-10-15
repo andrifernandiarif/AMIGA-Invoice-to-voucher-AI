@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, apiFetch, can, Client, json, User } from "../api";
+import { PasswordInput } from "./Operations";
+import { PageSkeleton } from "./Skeleton";
 const operational = [
   "CLIENT_PIC",
   "INTAKE_SUPPORT",
@@ -21,6 +23,7 @@ export default function Organization({ user }: { user: User }) {
   const [client, setClient] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const roles =
     user.role === "SUPER_ADMIN"
       ? [...operational, "SYSTEM_ADMIN", "USER_ADMIN", "SUPER_ADMIN"]
@@ -34,7 +37,10 @@ export default function Organization({ user }: { user: User }) {
     );
   }
   useEffect(() => {
-    load().catch((e) => setMessage(e.message));
+    setLoading(true);
+    load()
+      .catch((e) => setMessage(e.message))
+      .finally(() => setLoading(false));
   }, [search, offset]);
   useEffect(() => {
     if (!can(user, "assignments")) return;
@@ -114,6 +120,9 @@ export default function Organization({ user }: { user: User }) {
         />
       </label>
       <p role="status">{message}</p>
+      {loading ? (
+        <PageSkeleton />
+      ) : (
       <div className="organization-grid">
         <section className="card">
           <h2>Directory</h2>
@@ -194,13 +203,12 @@ export default function Organization({ user }: { user: User }) {
                   </button>
                   <label>
                     Temporary password
-                    <input
-                      type="password"
+                    <PasswordInput
                       autoComplete="new-password"
                       value={password}
                       minLength={12}
                       maxLength={128}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={setPassword}
                     />
                   </label>
                   <button
@@ -295,14 +303,13 @@ export default function Organization({ user }: { user: User }) {
               </label>
               <label>
                 Temporary password
-                <input
-                  type="password"
+                <PasswordInput
                   autoComplete="new-password"
                   required
                   minLength={12}
                   maxLength={128}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={setPassword}
                 />
               </label>
               {can(user, "assignments") && (
@@ -328,6 +335,7 @@ export default function Organization({ user }: { user: User }) {
           )}
         </section>
       </div>
+      )}
     </section>
   );
 }
