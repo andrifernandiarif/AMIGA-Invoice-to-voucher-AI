@@ -22,6 +22,7 @@ import {
 import TaxEditor from "./components/TaxEditor";
 import { TaxOption } from "./api";
 import TemplateEditor from "./components/TemplateEditor";
+import Chat from "./components/Chat";
 import Account from "./components/Account";
 import VoucherMetadata, {
   Approver,
@@ -1419,6 +1420,10 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
               Create user
             </NavLink>
           )}
+          <NavLink to="/chat">
+            <Icon name="search" />
+            Invoice chat
+          </NavLink>
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-tip">
@@ -1461,6 +1466,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
         </header>
         <main>
           <Routes>
+            <Route path="/chat" element={<Chat />} />
             <Route path="/account" element={<Account key="profile" />} />
             <Route
               path="/users"

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
+import logging
+from app.services.indexer import index_request
 import json
 from pydantic import ValidationError
 from app.schemas.voucher_metadata import VoucherMetadata
@@ -30,6 +33,7 @@ from app.services.audit_service import log_event
 from app.services.request_service import RequestIdGenerationError, generate_request_id
 from app.storage import StorageError, file_store
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/requests", tags=["requests"])
 
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB per file
@@ -273,6 +277,15 @@ async def approve_request(
     except Exception:
         await db.rollback()
         raise
+    # Approval and PDF are already committed. Indexing owns a separate transaction
+    # so either a Bedrock failure or a pgvector error cannot undo approval.
+    try:
+        async with asyncio.timeout(45):
+            await index_request(request_id, db)
+            await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.warning("Request %s indexing failed after approval (%s)", request_id, type(exc).__name__)
     return {"status": "approved", "request_id": str(request_id), "voucher": voucher}
 
 

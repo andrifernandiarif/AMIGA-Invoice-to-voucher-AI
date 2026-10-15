@@ -113,3 +113,56 @@ API additions:
 - Request detail exposes purpose, approvers, generated voucher number/date and submitter name/title, without returning signature image data.
 
 Templates support `submitter.full_name`, `submitter.job_title`, optional `submitter.signature_data` and the `approvers` loop (each person's `full_name` and `job_title`), alongside existing voucher/item variables. The default voucher has no AI-related messages.
+
+## Invoice retrieval chat and Telegram
+
+Install the updated backend dependencies, then run `alembic upgrade head`. Migration `0010` enables `vector` on PostgreSQL/Neon and creates `chunk_embeddings` with a `vector(1024)` column, JSONB metadata, a unique `(request_id, chunk_type)` constraint and an IVFFlat cosine index. **Titan V2 uses 1024 dimensions here, not 1536**: [AWS documents 1024/512/256 for V2](https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html). Titan G1's 1536-dimensional embeddings are incompatible with this schema.
+
+Configure `TITAN_EMBED_MODEL_ID=amazon.titan-embed-text-v2:0`. `TITAN_EMBED_REGION` normally falls back to `AWS_REGION`; the local `.env` uses Sydney (`ap-southeast-2`) because [Titan V2 is unavailable in Singapore](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-supported.html). Extraction, answer generation and S3 continue using the existing region/settings. The runtime identity needs Bedrock InvokeModel access to the embedding model in the embedding region and Converse access to `BEDROCK_MODEL_ID` in `AWS_REGION`. No credentials or token values are included in the tracked example configuration.
+
+The shared async entry point is `app.services.rag_service.ask(question, user, db, request_id=None)`. It returns a string with a `chunks_used` attribute for API callers. Both the JWT-authenticated web endpoint and Telegram call this function. Search filters by active client assignments before applying its limit, and the service checks the live relational assignment again before sending any context to Nova. System administrators also require a client assignment for retrieval. Request-scoped questions outside the caller's assignments return 404 without invoking Bedrock.
+
+Each indexed request has four bounded chunks: `HEADER`, `LINE_ITEMS`, `PAYMENT`, and `TAX_SUMMARY`. All contain request/client IDs, vendor, invoice number and status metadata. Signature images are excluded. Large records are explicitly marked as truncated. Embeddings are written atomically; repeated indexing updates the same rows. Answers use the current database status alongside indexed context, so a download/delivery status change is not misreported using the old indexed status. Retrieval is semantic, not an exhaustive report: the generator must not claim an invoice is the latest or produce a global count without sufficient context.
+
+Finance approval calls indexing after the PDF/approval transaction commits. Indexing errors or the 45-second indexing timeout are logged without rolling back approval. The backfill script retries approved/delivered requests that have no embeddings, with 100 ms between requests:
+
+```sh
+cd backend
+.venv/bin/python -m scripts.backfill_embeddings
+# Also repair partially indexed requests (fewer than four chunks):
+.venv/bin/python -m scripts.backfill_embeddings --retry-partial
+```
+
+The default approval hook and backfill index `AMIGA_REVIEWED` / `SENT_TO_CLIENT` records. They do not populate unapproved `EXCEPTION` requests. A question about an exception without indexed context should receive an insufficient-context answer. `index_request` is reusable for additional lifecycle hooks if that scope is needed later.
+
+The frontend provides **Invoice chat** at `/chat`, with an optional request selector, suggested questions, retrieved-section counts, and retry support. Each question is independent; include the invoice number when asking follow-up questions. The interface uses the authenticated API below.
+
+The web API accepts all existing system roles with a valid JWT:
+
+```sh
+curl http://localhost:8000/chat \
+  -H "Authorization: Bearer $INVOICE_ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"What is the invoice number and current status?"}'
+```
+
+Optional body field `request_id` scopes retrieval to one UUID. Response: `{"answer":"...","chunks_used":4}`. Empty/overlong questions return 422; upstream failures return a generic 503 without disclosing SDK errors or invoice data in logs. No retrieved context means no answer-model call.
+
+For Telegram, privately add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_MAP` to `backend/.env`. The map is JSON, such as `{"123456789":"SYSTEM_USER_UUID"}`; replace both values with the actual private chat ID and the user's UUID from `/auth/me`. Only mapped private chats with an active user are accepted, and every question still checks current client assignments. Run the bot as a separate process:
+
+```sh
+cd backend
+.venv/bin/python -m telegram_bot.bot
+```
+
+The bot handles `/start` and free text, sends plain-text replies, and splits long messages. The FastAPI process never starts Telegram polling. No real Telegram token or chat mapping is provisioned automatically.
+
+Tests mock Bedrock and Telegram; PostgreSQL vector operations also have an opt-in integration test using the configured database. Synthetic integration chunks are rolled back:
+
+```sh
+cd backend
+.venv/bin/pytest -q
+RUN_PGVECTOR_INTEGRATION=1 .venv/bin/pytest -q tests/test_vector_store_integration.py
+```
+
+For a small initial corpus the IVFFlat index has one list to preserve recall. As the corpus grows, rebuild it with an appropriate list count and run `ANALYZE`; see the [pgvector index guidance](https://github.com/pgvector/pgvector#ivfflat).

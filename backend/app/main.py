@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routes.chat import router as chat_router
 from app.routes.refinement import router as refinement_router
 from app.routes.workspace import router as workspace_router
 from app.routes.admin import router as admin_router
@@ -51,6 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(chat_router)
 app.include_router(workspace_router)
 app.include_router(refinement_router)
 app.include_router(auth_router)

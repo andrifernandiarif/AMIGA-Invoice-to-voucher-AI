@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     EXTRACTION_PROVIDER: Literal["mock", "bedrock"] = "mock"
     BEDROCK_MODEL_ID: str = "amazon.nova-lite-v1:0"
 
+    # Retrieval / Telegram. Titan V2 supports 1024, 512 or 256; this schema uses 1024.
+    TITAN_EMBED_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
+    TITAN_EMBED_REGION: str = ""  # empty uses AWS_REGION; override where Titan V2 is unavailable
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_USER_MAP: dict[str, str] = {}  # private chat ID -> system user UUID
+
     # Business rules
     CALCULATION_TOLERANCE: str = "0.01"
     AUTHORIZATION_DISCLAIMER: str = (
