@@ -94,7 +94,7 @@ async def test_duplicate_detector_exact_match_case_insensitive(test_db: AsyncSes
 
     # Now check for duplicates with different case
     matches = await DuplicateDetector.detect(
-        request_id=uuid.uuid4(),  # Different request ID
+        request_id=await source_request(test_db, req1.client_id),  # Same client
         vendor_name="acme corporation",  # Lowercase
         invoice_number="inv-2024-001",  # Lowercase
         db=test_db,
@@ -298,11 +298,12 @@ async def test_duplicate_detector_multiple_matches(test_db: AsyncSession):
     # Create multiple requests with same vendor/invoice but different request_ids
     req1_id = uuid.uuid4()
     req2_id = uuid.uuid4()
+    shared_client = uuid.uuid4()
     
     for i, req_id in enumerate([req1_id, req2_id], 1):
         req = InvoiceRequest(
             request_id=req_id,
-            client_id=uuid.uuid4(),
+            client_id=shared_client,
             uploader_id=uuid.uuid4(),
             request_type="standard",
             channel="email",
@@ -345,7 +346,7 @@ async def test_duplicate_detector_multiple_matches(test_db: AsyncSession):
 
     # Detect duplicates from a different request
     matches = await DuplicateDetector.detect(
-        request_id=uuid.uuid4(),  # Different request
+        request_id=await source_request(test_db, shared_client),  # Same client
         vendor_name="ACME Corp",
         invoice_number="INV-001",
         db=test_db,
@@ -422,3 +423,12 @@ async def test_match_result_structure(test_db: AsyncSession):
     assert match.status == RequestStatus.AMIGA_REVIEWED
     assert match.invoice_date == test_invoice_date
     assert match.total_amount == test_amount
+
+
+async def source_request(db, client_id):
+    request_id = uuid.uuid4()
+    db.add(InvoiceRequest(request_id=request_id, client_id=client_id, uploader_id=uuid.uuid4(),
+        request_type="standard", channel="upload", request_date=date.today(), status=RequestStatus.PROCESSING,
+        flags=[], invoice_file_key="source", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+    await db.flush()
+    return request_id

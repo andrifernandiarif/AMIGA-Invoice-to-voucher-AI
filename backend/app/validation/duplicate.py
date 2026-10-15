@@ -63,6 +63,8 @@ class DuplicateDetector:
                 func.lower(HeaderFields.invoice_number) == invoice_number.lower(),
                 InvoiceRequest.status.notin_(DuplicateDetector.EXCLUDED_STATUSES),
                 InvoiceRequest.request_id != request_id,
+                InvoiceRequest.client_id == select(InvoiceRequest.client_id).where(
+                    InvoiceRequest.request_id == request_id).scalar_subquery(),
             )
         )
         matches = result.fetchall()

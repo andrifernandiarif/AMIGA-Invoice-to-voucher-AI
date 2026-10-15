@@ -293,6 +293,9 @@ async def test_validation_engine_possible_duplicate(test_db: AsyncSession):
     # Now create new request being tested
     request_id, draft = await setup_draft(test_db)
 
+    current = await test_db.get(InvoiceRequest, request_id)
+    existing_req.client_id = current.client_id
+
     # Create header with SAME vendor and invoice number
     header = HeaderFields(
         header_id=uuid.uuid4(),

@@ -9,6 +9,7 @@ import {
   useParams,
 } from "react-router-dom";
 import {
+  can,
   api,
   apiFetch,
   Client,
@@ -22,6 +23,15 @@ import {
 import TaxEditor from "./components/TaxEditor";
 import { TaxOption } from "./api";
 import TemplateEditor from "./components/TemplateEditor";
+import Organization from "./components/Organization";
+import {
+  ValidationWarnings,
+  PasswordForm,
+  HistoryTimeline,
+  AllocationPanel,
+  MetricsDashboard,
+  ClientManager,
+} from "./components/Operations";
 import Chat from "./components/Chat";
 import Account from "./components/Account";
 import VoucherMetadata, {
@@ -89,6 +99,7 @@ function ErrorMessage({ message }: { message: string }) {
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function submit(e: FormEvent) {
@@ -98,7 +109,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     try {
       const result = await api<{ access_token: string }>("/auth/token", {
         method: "POST",
-        body: new URLSearchParams({ username }),
+        body: new URLSearchParams({ username, password }),
       });
       sessionStorage.setItem(tokenKey, result.access_token);
       onLogin(await api<User>("/auth/me"));
@@ -146,14 +157,20 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
             required
           />
         </label>
+        <label>
+          Password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </label>
         <button className="primary" disabled={busy}>
           {busy ? "Signing in…" : "Continue"}
           <Icon name="arrow" />
         </button>
-        <div className="dev-note">
-          Development authentication is enabled. Your backend currently signs in
-          existing users by username without a password.
-        </div>
       </form>
     </div>
   );
@@ -171,9 +188,28 @@ function Dashboard({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [clientFilter, setClientFilter] = useState("");
+  const [reviewerFilter, setReviewerFilter] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [timing] = useState(() => ({
+    started: performance.now(),
+    recorded: false,
+  }));
   const load = useCallback(async () => {
     try {
       setItems(await api<Invoice[]>("/requests"));
+      if (!timing.recorded) {
+        timing.recorded = true;
+        void api(
+          "/telemetry/page-load",
+          json({
+            page: "dashboard",
+            duration_ms: Math.round(performance.now() - timing.started),
+          }),
+        ).catch(() => {});
+      }
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -193,11 +229,16 @@ function Dashboard({
   const visible = source.filter(
     (i) =>
       (filter === "all" || i.status === filter) &&
+      (!clientFilter || i.client_id === clientFilter) &&
+      (!reviewerFilter || i.assigned_reviewer === reviewerFilter) &&
+      (!dueFrom || (!!i.due_date && i.due_date >= dueFrom)) &&
+      (!dueTo || (!!i.due_date && i.due_date <= dueTo)) &&
+      (!overdueOnly || i.overdue) &&
       `${i.client_name} ${i.request_id}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const canUpload = ["CLIENT_PIC", "INTAKE_SUPPORT"].includes(user.role);
+  const canUpload = can(user, "upload");
   return (
     <>
       <div className="page-heading">
@@ -322,6 +363,78 @@ function Dashboard({
             Refresh ↻
           </button>
         </div>
+        <div className="dashboard-filters">
+          <label>
+            Company
+            <select
+              value={clientFilter}
+              onChange={(e) => setClientFilter(e.target.value)}
+            >
+              <option value="">All companies</option>
+              {Array.from(
+                new Map(items.map((i) => [i.client_id, i.client_name])),
+              ).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="all">All statuses</option>
+              {Object.entries(statusLabels).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Reviewer
+            <select
+              value={reviewerFilter}
+              onChange={(e) => setReviewerFilter(e.target.value)}
+            >
+              <option value="">All reviewers</option>
+              {Array.from(
+                new Set(items.map((i) => i.assigned_reviewer).filter(Boolean)),
+              ).map((id) => (
+                <option key={id} value={id!}>
+                  {id === user.user_id
+                    ? "Me"
+                    : items.find((i) => i.assigned_reviewer === id)
+                        ?.assigned_reviewer_name || id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Due from
+            <input
+              type="date"
+              value={dueFrom}
+              onChange={(e) => setDueFrom(e.target.value)}
+            />
+          </label>
+          <label>
+            Due through
+            <input
+              type="date"
+              value={dueTo}
+              onChange={(e) => setDueTo(e.target.value)}
+            />
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={overdueOnly}
+              onChange={(e) => setOverdueOnly(e.target.checked)}
+            />
+            Overdue only (WIB)
+          </label>
+        </div>
         <div className="table-tools">
           <div className="tabs">
             {[
@@ -376,6 +489,12 @@ function Dashboard({
                       <span>
                         INV-{i.request_id.slice(0, 8).toUpperCase()}
                         <small>{label(i.channel)}</small>
+                        {i.due_date && (
+                          <small>
+                            Due {i.due_date}
+                            {i.overdue ? " · Overdue" : ""}
+                          </small>
+                        )}
                       </span>
                     </Link>
                   </td>
@@ -383,6 +502,12 @@ function Dashboard({
                   <td className="muted">{date(i.created_at)}</td>
                   <td>
                     <Badge status={i.status} />
+                    {!!i.flags?.length && (
+                      <small>
+                        {i.flags.length} validation warning
+                        {i.flags.length > 1 ? "s" : ""}
+                      </small>
+                    )}
                   </td>
                   <td>
                     <Link
@@ -406,14 +531,26 @@ function Dashboard({
             <h3>
               {loading
                 ? "Loading your requests…"
-                : search || filter !== "all"
+                : search ||
+                    filter !== "all" ||
+                    clientFilter ||
+                    reviewerFilter ||
+                    dueFrom ||
+                    dueTo ||
+                    overdueOnly
                   ? "No matching requests"
                   : "A fresh start for your invoices"}
             </h3>
             <p>
               {loading
                 ? "Connecting to your workspace."
-                : search || filter !== "all"
+                : search ||
+                    filter !== "all" ||
+                    clientFilter ||
+                    reviewerFilter ||
+                    dueFrom ||
+                    dueTo ||
+                    overdueOnly
                   ? "Try another search or status filter."
                   : "Your requests will appear here as invoices are submitted."}
             </p>
@@ -437,7 +574,7 @@ function Dashboard({
       </section>
       <div className="workspace-note">
         <Icon name="check" size={16} />
-        Every approval includes an independent review and an audit trail.
+        Approvals and any unresolved warnings are recorded in the audit trail.
       </div>
     </>
   );
@@ -719,18 +856,24 @@ function RequestView({ user }: { user: User }) {
   const [evidenceError, setEvidenceError] = useState("");
   const [evidenceRetry, setEvidenceRetry] = useState(0);
   const [tab, setTab] = useState("draft");
-  const [revisions, setRevisions] = useState<
-    {
-      revision_id: string;
-      field_path: string;
-      old_value: string | null;
-      new_value: string | null;
-      revised_at: string;
-    }[]
-  >([]);
+
+  const [timing] = useState(() => ({
+    started: performance.now(),
+    recorded: false,
+  }));
   const load = useCallback(async () => {
     try {
       setData(await api<Detail>(`/requests/${requestId}`));
+      if (!timing.recorded) {
+        timing.recorded = true;
+        void api(
+          "/telemetry/page-load",
+          json({
+            page: "review",
+            duration_ms: Math.round(performance.now() - timing.started),
+          }),
+        ).catch(() => {});
+      }
     } catch (e) {
       setError((e as Error).message);
     }
@@ -777,12 +920,7 @@ function RequestView({ user }: { user: User }) {
       if (url) URL.revokeObjectURL(url);
     };
   }, [evidenceKey, evidenceRetry]);
-  useEffect(() => {
-    if (tab === "history")
-      api<typeof revisions>(`/requests/${requestId}/revisions`)
-        .then(setRevisions)
-        .catch((e) => setError(e.message));
-  }, [tab, requestId]);
+
   async function action(path: string, body?: unknown) {
     setBusy(true);
     setError("");
@@ -853,12 +991,10 @@ function RequestView({ user }: { user: User }) {
     }
   }
   const refining =
-    user.role === "CLIENT_PIC" && data?.status === "READY_FOR_REFINEMENT";
+    can(user, "refine") && data?.status === "READY_FOR_REFINEMENT";
   const editable =
     !!data &&
-    (refining ||
-      (["FINANCE_REVIEWER", "SYSTEM_ADMIN"].includes(user.role) &&
-        data.status === "READY_FOR_REVIEW"));
+    (refining || (can(user, "review") && data.status === "READY_FOR_REVIEW"));
 
   const dirty =
     metadataDirty ||
@@ -933,20 +1069,59 @@ function RequestView({ user }: { user: User }) {
         </div>
       ) : (
         <>
+          {data.draft?.source_invoices &&
+            data.draft.source_invoices.length > 1 && (
+              <section className="card">
+                <h2>Combined source invoices</h2>
+                <p>
+                  All invoice items, printed taxes and additional charges are
+                  included below. Printed taxes are already included; only
+                  assign an additional tax if intended.
+                </p>
+                {data.draft.source_invoices.map((invoice, index) => (
+                  <p key={index}>
+                    {invoice.header?.invoice_number || `Invoice ${index + 1}`} ·{" "}
+                    {invoice.header?.invoice_date || "Date unavailable"} ·{" "}
+                    {invoice.header?.currency} {invoice.header?.total_amount}
+                  </p>
+                ))}
+              </section>
+            )}
+          {can(user, "upload") &&
+            (data.status === "EXCEPTION" ||
+              (data.status === "READY_FOR_REFINEMENT" &&
+                !data.draft?.header_fields &&
+                !data.draft?.line_items.length)) && (
+              <section className="card">
+                <p>
+                  Extraction did not produce usable values. Retry using the
+                  original uploaded documents.
+                </p>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => action("retry-extraction")}
+                >
+                  {busy ? "Retrying…" : "Retry extraction"}
+                </button>
+              </section>
+            )}
+          {!!data.validation_issues?.length && (
+            <ValidationWarnings issues={data.validation_issues} />
+          )}
+          {can(user, "allocate") && (
+            <AllocationPanel
+              requestId={requestId!}
+              data={data}
+              onSaved={load}
+            />
+          )}
           <div className="detail-toolbar">
             <div className="tabs">
               {[
                 "draft",
-                ...(["FINANCE_REVIEWER", "CLIENT_PIC"].includes(user.role)
-                  ? ["voucher"]
-                  : []),
-                ...([
-                  "FINANCE_REVIEWER",
-                  "SERVICE_LEAD",
-                  "SYSTEM_ADMIN",
-                ].includes(user.role)
-                  ? ["history"]
-                  : []),
+                ...(can(user, "voucher") ? ["voucher"] : []),
+                ...(can(user, "history") ? ["history"] : []),
               ].map((t) => (
                 <button
                   key={t}
@@ -982,29 +1157,26 @@ function RequestView({ user }: { user: User }) {
                     : `Save changes${dirty ? ` (${Object.keys(changes).length})` : ""}`}
                 </button>
               )}
-              {user.role === "FINANCE_REVIEWER" &&
-                data.status === "READY_FOR_REVIEW" && (
-                  <>
-                    <button
-                      className="danger-outline"
-                      disabled={busy || dirty}
-                      onClick={() => setRejecting(true)}
-                    >
-                      Reject
-                    </button>
-                    <button
-                      className="primary"
-                      disabled={busy || dirty || !data.draft}
-                      onClick={() => action("approve")}
-                    >
-                      <Icon name="check" size={17} />
-                      {busy
-                        ? "Generating voucher…"
-                        : "Accept & generate voucher"}
-                    </button>
-                  </>
-                )}
-              {["CLIENT_PIC", "FINANCE_REVIEWER"].includes(user.role) &&
+              {can(user, "approve") && data.status === "READY_FOR_REVIEW" && (
+                <>
+                  <button
+                    className="danger-outline"
+                    disabled={busy || dirty}
+                    onClick={() => setRejecting(true)}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={busy || dirty || !data.draft}
+                    onClick={() => action("approve")}
+                  >
+                    <Icon name="check" size={17} />
+                    {busy ? "Generating voucher…" : "Accept & generate voucher"}
+                  </button>
+                </>
+              )}
+              {can(user, "voucher") &&
                 ["AMIGA_REVIEWED", "SENT_TO_CLIENT"].includes(data.status) && (
                   <button
                     className="primary"
@@ -1246,7 +1418,7 @@ function RequestView({ user }: { user: User }) {
                       purpose={data.voucher_purpose || ""}
                       approvers={data.approvers || []}
                       editable={
-                        user.role === "CLIENT_PIC" &&
+                        can(user, "refine") &&
                         data.status === "READY_FOR_REFINEMENT"
                       }
                       onDirty={setMetadataDirty}
@@ -1350,24 +1522,7 @@ function RequestView({ user }: { user: User }) {
                 <p>Voucher preview is available after independent approval.</p>
               </section>
             ))}
-          {tab === "history" && (
-            <section className="card">
-              <h2>Field revision history</h2>
-              {!revisions.length ? (
-                <div className="empty-state">No field revisions recorded.</div>
-              ) : (
-                revisions.map((r) => (
-                  <div className="revision" key={r.revision_id}>
-                    <strong>{r.field_path}</strong>
-                    <span>
-                      {r.old_value || "Empty"} → {r.new_value || "Empty"}
-                    </span>
-                    <small>{date(r.revised_at)}</small>
-                  </div>
-                ))
-              )}
-            </section>
-          )}
+          {tab === "history" && <HistoryTimeline requestId={requestId!} />}
         </>
       )}
     </>
@@ -1394,17 +1549,19 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             <Icon name="grid" />
             Overview
           </NavLink>
-          {["CLIENT_PIC", "INTAKE_SUPPORT"].includes(user.role) && (
+          {can(user, "upload") && (
             <NavLink to="/upload">
               <Icon name="upload" />
               New request
             </NavLink>
           )}
-          <NavLink to="/vouchers">
-            <Icon name="file" />
-            Vouchers
-          </NavLink>
-          {user.role === "SYSTEM_ADMIN" && (
+          {can(user, "voucher") && (
+            <NavLink to="/vouchers">
+              <Icon name="file" />
+              Vouchers
+            </NavLink>
+          )}
+          {can(user, "templates") && (
             <NavLink to="/templates">
               <Icon name="file" />
               Voucher templates
@@ -1414,16 +1571,31 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             <Icon name="file" />
             Your account
           </NavLink>
-          {user.role === "SYSTEM_ADMIN" && (
+
+          {(can(user, "users") || can(user, "assignments")) && (
             <NavLink to="/users">
-              <Icon name="file" />
-              Create user
+              <Icon name="grid" />
+              People & assignments
             </NavLink>
           )}
-          <NavLink to="/chat">
-            <Icon name="search" />
-            Invoice chat
-          </NavLink>
+          {can(user, "metrics") && (
+            <NavLink to="/metrics">
+              <Icon name="clock" />
+              Performance
+            </NavLink>
+          )}
+          {can(user, "clients") && (
+            <NavLink to="/clients">
+              <Icon name="grid" />
+              Companies
+            </NavLink>
+          )}
+          {can(user, "chat") && (
+            <NavLink to="/chat">
+              <Icon name="search" />
+              Invoice chat
+            </NavLink>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-tip">
@@ -1467,20 +1639,59 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
         <main>
           <Routes>
             <Route path="/chat" element={<Chat />} />
-            <Route path="/account" element={<Account key="profile" />} />
+            <Route
+              path="/account"
+              element={
+                <>
+                  <Account key="profile" />
+                  <PasswordForm onChanged={logout} />
+                </>
+              }
+            />
             <Route
               path="/users"
               element={
-                user.role === "SYSTEM_ADMIN" ? (
-                  <Account key="create" create />
+                can(user, "users") || can(user, "assignments") ? (
+                  <Organization user={user} />
                 ) : (
                   <div className="card">
-                    User creation is available to system administrators.
+                    Your role cannot manage users or assignments.
                   </div>
                 )
               }
             />
-            <Route path="/" element={<Dashboard user={user} />} />
+            <Route
+              path="/metrics"
+              element={
+                can(user, "metrics") ? (
+                  <MetricsDashboard />
+                ) : (
+                  <div className="card">
+                    Your role cannot view performance metrics.
+                  </div>
+                )
+              }
+            />
+            <Route
+              path="/clients"
+              element={
+                can(user, "clients") ? (
+                  <ClientManager />
+                ) : (
+                  <div className="card">Your role cannot manage companies.</div>
+                )
+              }
+            />
+            <Route
+              path="/"
+              element={
+                user.role === "USER_ADMIN" ? (
+                  <Organization user={user} />
+                ) : (
+                  <Dashboard user={user} />
+                )
+              }
+            />
             <Route
               path="/vouchers"
               element={<Dashboard user={user} vouchers />}
@@ -1488,7 +1699,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             <Route
               path="/upload"
               element={
-                ["CLIENT_PIC", "INTAKE_SUPPORT"].includes(user.role) ? (
+                can(user, "upload") ? (
                   <Upload />
                 ) : (
                   <div className="card">Your role cannot submit invoices.</div>
@@ -1502,7 +1713,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
             <Route
               path="/templates"
               element={
-                user.role === "SYSTEM_ADMIN" ? (
+                can(user, "templates") ? (
                   <TemplateEditor />
                 ) : (
                   <div className="card">
@@ -1550,6 +1761,11 @@ export default function App() {
     <BrowserRouter>
       {loading ? (
         <div className="login-page empty-state">Opening your workspace…</div>
+      ) : user?.must_change_password ? (
+        <div className="login-page">
+          <PasswordForm forced onChanged={logout} />
+          <button onClick={logout}>Sign out</button>
+        </div>
       ) : user ? (
         <Shell user={user} logout={logout} />
       ) : (

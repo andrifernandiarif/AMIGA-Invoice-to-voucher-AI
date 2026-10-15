@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/requests", tags=["voucher"])
 
 # SLA threshold for PDF generation (ms)
-_PDF_SLA_MS = 5_000
+_PDF_SLA_MS = 3_000
 
 
 # ── GET /requests/{request_id}/voucher-preview ────────────────────────────────
@@ -389,7 +389,7 @@ async def generate_voucher_pdf(
         telemetry_record = TelemetryRecord(
             record_id=uuid.uuid4(),
             metric_type=MetricType.PDF_GENERATION_DURATION,
-            subject_id=str(voucher_pdf_id),
+            subject_id=str(request_id),
             duration_ms=duration_ms,
             page_count=None,
             is_breach=is_breach,

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey
+from sqlalchemy import JSON, Boolean, DateTime, Enum as SAEnum, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,4 +27,5 @@ class Draft(Base):
     extraction_status: Mapped[ExtractionStatus] = mapped_column(
         SAEnum(ExtractionStatus, name="extractionstatus"), nullable=False
     )
+    source_invoices: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

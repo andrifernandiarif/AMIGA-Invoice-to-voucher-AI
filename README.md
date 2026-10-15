@@ -2,6 +2,12 @@
 
 A React frontend connected to the FastAPI extraction and review backend. Includes sign-in, a client-scoped request dashboard, multi-file evidence upload, side-by-side invoice review, editable draft fields, revision history, approval/rejection, and voucher preview/download.
 
+## Organization access and advisory validation
+
+Password login, delegated organization management, advisory validation, complete audit history, reviewer/deadline allocation, and performance views are implemented. See [login instructions, test roles, setup and acceptance walkthroughs](docs/organization-access.md). Local generated test credentials are in `backend/.env.demo-credentials`, excluded from Git. Temporary-password users must change their password before accessing the workspace.
+
+Super Admin has unrestricted access, including self-approval. System Admin manages clients/templates but cannot approve. User Admin manages operational accounts/roles. Service Lead manages assignments within its clients and reviewer/deadline allocation. Validation issues never block Finance approval: unresolved issues are snapshotted in the approval audit event.
+
 ## Run locally
 
 Start the backend from its own directory so `.env` is loaded correctly:
@@ -26,9 +32,9 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Vite proxies `/api` to the backend on port 8000. Sign in with an existing active username. The existing development authentication endpoint does **not** verify passwords. Production deployment requires a production authentication implementation. For a built frontend, configure your reverse proxy to forward `/api/*` to the backend with the `/api` prefix stripped and serve `index.html` for frontend routes.
+Open http://localhost:5173. Vite proxies `/api` to the backend on port 8000. Sign in with an active username and password. Existing accounts without a password require a temporary-password reset by an authorized administrator; see the organization setup guide. For a built frontend, configure your reverse proxy to forward `/api/*` to the backend with the `/api` prefix stripped and serve `index.html` for frontend routes.
 
-Roles control the workflow: Client PIC and Intake Support upload evidence; Client PIC refines extracted fields, assigns item taxes and submits for review; Finance Reviewer reviews, edits, approves or rejects; System Admin can correct drafts; Finance Reviewer, Service Lead and System Admin can read revisions. Acceptance automatically generates the voucher. Client PIC and Finance Reviewer can download the voucher and each evidence file separately. The server enforces client assignments and prevents self-approval.
+Roles control the workflow: Client PIC and Intake Support upload evidence; Client PIC refines extracted fields, assigns item taxes and submits for review; Finance Reviewer reviews, edits, approves or rejects; System Admin can correct drafts; Finance Reviewer, Service Lead and System Admin can read revisions. Acceptance automatically generates the voucher. Client PIC and Finance Reviewer can download the voucher and each evidence file separately. The server enforces client assignments and prevents self-approval except for Super Admin.
 
 ## Workspace APIs
 
@@ -38,11 +44,11 @@ The existing extraction, approval, rejection and voucher endpoints are supplemen
 - `GET /requests`: requests for active client assignments.
 - `GET /requests/{request_id}`: extracted draft and evidence metadata.
 - `GET /evidence/{file_key}`: authenticated evidence bytes.
-- `PUT /requests/{request_id}/fields`: typed field correction and revision/audit recording, with no discrepancy validation or flags. Paths: `header.vendor_name`, `line_items.0.description` (zero-based display index), `payment.bank_name`.
+- `PUT /requests/{request_id}/fields`: typed field correction and revision/audit recording, with advisory discrepancy validation and persisted issues. Paths: `header.vendor_name`, `line_items.0.description` (zero-based display index), `payment.bank_name`.
 - `GET /requests/{request_id}/revisions`: ordered correction history for authorized roles.
 - `POST /telemetry/page-load`: authenticated, bounded page-load timing record.
 
-Client listing and uploads require active client assignments. Extraction creates a READY_FOR_REFINEMENT draft for Client PIC. Client PIC edits extracted fields and applies per-item taxes, then explicitly submits to Finance Reviewer. Submitted drafts become READY_FOR_REVIEW and client edits are locked. Finance Reviewers compare the submitted values and tax rows against evidence and accept or reject. The finance queue excludes unsubmitted drafts. Automated discrepancy, duplicate, and missing-field flags are disabled. Historical flags do not block acceptance. Technical extraction failures still display a processing error.
+Client listing and uploads require active client assignments. Extraction creates a READY_FOR_REFINEMENT draft for Client PIC. Client PIC edits extracted fields and applies per-item taxes, then explicitly submits to Finance Reviewer. Submitted drafts become READY_FOR_REVIEW and client edits are locked. Finance Reviewers compare the submitted values and tax rows against evidence and accept or reject. The finance queue excludes unsubmitted drafts. Automated discrepancy, same-client duplicate, and missing-field checks produce advisory flags. Flags do not block acceptance and remain available in request history. Technical extraction failures still display a processing error.
 
 Acceptance generates and stores a PDF using the active template in the approval transaction. Rendering or S3 failures leave the request awaiting review. Downloads fetch the already generated PDF; evidence is downloaded independently via `GET /evidence/{file_key}?download=true`. Only a Client PIC voucher download records delivery to the client.
 
@@ -50,7 +56,7 @@ System Admins can use the **Voucher templates** screen to import/edit HTML and a
 
 ## Voucher layout
 
-The active Indonesian voucher contains Nomor, Nama, Peruntukan, Tanggal/Periode, and Nominal; an item table with NO, TANGGAL, KETERANGAN, JUMLAH, HARGA, and TOTAL; and Diajukan Oleh / Disetujui Oleh signature blocks with account/client names and professional roles. The submitter’s optional uploaded signature is included; external approver signature spaces remain empty. The PDF contains no AI notices or generated-by footer.
+The active Indonesian voucher contains Nomor, Nama, Peruntukan, Tanggal/Periode, and Nominal; an item table with NO, TANGGAL, KETERANGAN, JUMLAH, HARGA, and TOTAL; and Diajukan Oleh / Disetujui Oleh signature blocks with account/client names and professional roles. The submitter’s optional uploaded signature is included; external approver signature spaces remain empty. The PDF contains a client payment-authorization notice and no AI or generated-by footer.
 
 Client PIC can correct extracted name/item fields and upload metadata during refinement; Finance Reviewer can correct submitted extracted values during review. Voucher number and creation datetime are generated by the backend. Purpose and external approvers are captured at upload. Nominal shows the extracted/reviewed document total; the bottom TOTAL uses item amounts plus assigned tax rows, fees and rounding, minus explicit withholding. Extracted header tax is not added a second time. Amounts use Indonesian separators.
 
@@ -72,7 +78,7 @@ Migrations 0007–0008 add the refinement stage and explicit tax parameters, and
 
 Run `alembic upgrade head` from `backend` after updating the code. Migration `0004` restores evidence metadata for older uploads from their audit history and moves successfully extracted legacy exception drafts into manual review. Original S3 files and audit events are retained; requests without a successfully extracted draft remain processing failures.
 
-Restart any backend started without `--reload`. `GET /health` should return `"workflow": "voucher-schema-v3"`; if that marker is absent, an older process is still serving port 8000. The frontend proxy's `/api/health` should return the same marker.
+Restart any backend started without `--reload`. `GET /health` should return `"workflow": "organization-v4"`; if that marker is absent, an older process is still serving port 8000. The frontend proxy's `/api/health` should return the same marker.
 
 ## Checks
 
@@ -101,7 +107,7 @@ Run migration `0009` with `alembic upgrade head`. It adds company codes and coun
 - **Diajukan Oleh:** the uploader's account full name, professional role and optional PNG/JPEG signature. These are snapshotted when Client PIC submits for review and preserved for regeneration. A missing signature leaves an empty signature space.
 - **Disetujui Oleh:** one or more external client approvers supplied at upload, each with full name and professional role (for example BOD or Manager). Each gets an empty signature space. Finance review does not fill or sign these external approval blocks.
 
-Complete **Your account** before uploading if an existing account has no full name or professional role. System administrators can use **Create user** to provision these fields, optional signatures and client assignments. The professional role is independent of the system access role. Missing historical personal/approver details are never invented. Existing drafts can complete upload details during refinement before submitting.
+Complete **Your account** before uploading if an existing account has no full name or professional role. Super Admin and User Admin can use **People & assignments** to create accounts with these fields. Super Admin or a scoped Service Lead grants client assignments. Users can add optional signatures in **Your account**. The professional role is independent of the system access role. Missing historical personal/approver details are never invented. Existing drafts can complete upload details during refinement before submitting.
 
 API additions:
 
@@ -120,7 +126,7 @@ Install the updated backend dependencies, then run `alembic upgrade head`. Migra
 
 Configure `TITAN_EMBED_MODEL_ID=amazon.titan-embed-text-v2:0`. `TITAN_EMBED_REGION` normally falls back to `AWS_REGION`; the local `.env` uses Sydney (`ap-southeast-2`) because [Titan V2 is unavailable in Singapore](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-supported.html). Extraction, answer generation and S3 continue using the existing region/settings. The runtime identity needs Bedrock InvokeModel access to the embedding model in the embedding region and Converse access to `BEDROCK_MODEL_ID` in `AWS_REGION`. No credentials or token values are included in the tracked example configuration.
 
-The shared async entry point is `app.services.rag_service.ask(question, user, db, request_id=None)`. It returns a string with a `chunks_used` attribute for API callers. Both the JWT-authenticated web endpoint and Telegram call this function. Search filters by active client assignments before applying its limit, and the service checks the live relational assignment again before sending any context to Nova. System administrators also require a client assignment for retrieval. Request-scoped questions outside the caller's assignments return 404 without invoking Bedrock.
+The shared async entry point is `app.services.rag_service.ask(question, user, db, request_id=None)`. It returns a string with a `chunks_used` attribute for API callers. Both the JWT-authenticated web endpoint and Telegram call this function. Search filters by active client assignments before applying its limit, and the service checks the live relational assignment again before sending any context to Nova. System administrators also require a client assignment for retrieval; Super Admin has global access. Request-scoped questions outside the caller's assignments return 404 without invoking Bedrock.
 
 Each indexed request has four bounded chunks: `HEADER`, `LINE_ITEMS`, `PAYMENT`, and `TAX_SUMMARY`. All contain request/client IDs, vendor, invoice number and status metadata. Signature images are excluded. Large records are explicitly marked as truncated. Embeddings are written atomically; repeated indexing updates the same rows. Answers use the current database status alongside indexed context, so a download/delivery status change is not misreported using the old indexed status. Retrieval is semantic, not an exhaustive report: the generator must not claim an invoice is the latest or produce a global count without sufficient context.
 
@@ -137,7 +143,7 @@ The default approval hook and backfill index `AMIGA_REVIEWED` / `SENT_TO_CLIENT`
 
 The frontend provides **Invoice chat** at `/chat`, with an optional request selector, suggested questions, retrieved-section counts, and retry support. Each question is independent; include the invoice number when asking follow-up questions. The interface uses the authenticated API below.
 
-The web API accepts all existing system roles with a valid JWT:
+The web API accepts operational roles, System Admin and Super Admin with a valid unrestricted JWT; User Admin has no invoice-chat permission:
 
 ```sh
 curl http://localhost:8000/chat \
@@ -166,3 +172,11 @@ RUN_PGVECTOR_INTEGRATION=1 .venv/bin/pytest -q tests/test_vector_store_integrati
 ```
 
 For a small initial corpus the IVFFlat index has one list to preserve recall. As the corpus grows, rebuild it with an appropriate list count and run `ANALYZE`; see the [pgvector index guidance](https://github.com/pgvector/pgvector#ivfflat).
+
+## Combining multiple invoices into one voucher
+
+Upload the source PDFs together in one request. Bedrock extracts each source independently; the backend combines distinct invoices with Decimal arithmetic. Combined vouchers retain each invoice number/date on its items and include printed freight, fuel surcharges, taxes and rounding as separate payable rows. Those amounts are already included in the item subtotal and are not added again through the header or automatic Indonesian tax presets. Original source headers remain available in the request detail under `draft.source_invoices`.
+
+Duplicate copies/pages with the same vendor and invoice number are consolidated; conflicting copies and mixed currencies fail explicitly rather than producing a misleading combined amount. Invalid model output is retried as a processing failure instead of becoming a successful empty draft. Migration `0013` adds source invoice snapshots.
+
+Client PIC, Intake Support and Super Admin can use **Retry extraction** (`POST /requests/{id}/retry-extraction`) for failed requests or older empty drafts. Existing extracted/edited/submitted values are protected from replacement. Original evidence and upload metadata are reused, and the retry is audited.

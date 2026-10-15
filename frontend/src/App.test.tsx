@@ -2,7 +2,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-const user = { user_id: "u", username: "finance", role: "FINANCE_REVIEWER" };
+const user = {
+  user_id: "u",
+  username: "finance",
+  role: "FINANCE_REVIEWER",
+  permissions: ["review", "approve", "voucher", "history", "chat"],
+};
 const response = (body: unknown) => ({ ok: true, json: async () => body });
 beforeEach(() => {
   sessionStorage.clear();
@@ -22,6 +27,10 @@ describe("Workspace", () => {
       .mockResolvedValue(response([]) as Response);
     render(<App />);
     await userEvent.type(screen.getByLabelText("Username"), "finance");
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "Finance-Password-2026",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByRole("heading", { name: "Invoice overview." });
     expect(sessionStorage.getItem("amiga_access_token")).toBe("test-token");
@@ -55,7 +64,7 @@ describe("Workspace", () => {
         ) as Response,
     );
     render(<App />);
-    await screen.findByText("Acme");
+    await screen.findByText("Acme", { selector: "td" });
     await userEvent.type(screen.getByLabelText("Search requests"), "missing");
     expect(screen.getByText("No matching requests")).toBeInTheDocument();
     await userEvent.click(screen.getByLabelText("Sign out"));
@@ -181,6 +190,14 @@ it("lets Client PIC refine a draft and locks editing after submitting for financ
           user_id: "pic",
           username: "client",
           role: "CLIENT_PIC",
+          permissions: [
+            "upload",
+            "refine",
+            "submit",
+            "voucher",
+            "history",
+            "chat",
+          ],
         });
       if (url === "/api/tax-options") return response([]);
       if (String(url).endsWith("/submit-review") && init?.method === "POST") {
@@ -215,6 +232,7 @@ it("uploads purpose and multiple named client approvers with evidence", async ()
     user_id: "u",
     username: "pic",
     role: "CLIENT_PIC",
+    permissions: ["upload", "refine", "submit", "voucher", "history", "chat"],
     full_name: "Rina",
     job_title: "Admin",
   };
@@ -286,4 +304,51 @@ it("uploads purpose and multiple named client approvers with evidence", async ()
     { full_name: "Sari", job_title: "Manager" },
   ]);
   expect(form.getAll("files")).toHaveLength(1);
+});
+
+it("lets Client PIC retry a blank extraction using the original evidence", async () => {
+  const rid = "12345678-1234-1234-1234-123456789abc";
+  window.history.replaceState({}, "", `/requests/${rid}`);
+  sessionStorage.setItem("amiga_access_token", "token");
+  const detail = {
+    request_id: rid,
+    client_id: "c",
+    status: "READY_FOR_REFINEMENT",
+    flags: [],
+    rejection_reason: null,
+    evidence_files: [],
+    draft: { header_fields: null, line_items: [], payment_details: null },
+  };
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    if (url === "/api/auth/me")
+      return response({
+        user_id: "pic",
+        username: "pic",
+        role: "CLIENT_PIC",
+        permissions: ["upload", "refine", "submit", "voucher", "history"],
+      }) as Response;
+    if (String(url).endsWith("/tax-options")) return response([]) as Response;
+    if (String(url).endsWith("/retry-extraction") && init?.method === "POST") {
+      detail.status = "QUEUED";
+      return response({ status: "QUEUED" }) as Response;
+    }
+    return response(detail) as Response;
+  });
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Retry extraction" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "Retry extraction" }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/retry-extraction") && init?.method === "POST",
+      ),
+  ).toBe(true);
 });

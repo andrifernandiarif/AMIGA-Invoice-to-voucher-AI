@@ -114,6 +114,8 @@ async def assign_tax(
     )
     req.updated_at = datetime.now(UTC)
     await db.flush()
+    from app.services.advisory_validation import validate_request
+    await validate_request(db, req, user.user_id)
     return {"tax_assignment": new}
 
 
@@ -173,6 +175,8 @@ async def submit_review(
         "job_title": uploader.job_title,
         "signature_data": uploader.signature_data or "",
     }
+    from app.services.advisory_validation import validate_request
+    await validate_request(db, req, user.user_id)
     req.refinement_submitted_at = datetime.now(UTC)
     req.status = RequestStatus.READY_FOR_REVIEW
     req.updated_at = req.refinement_submitted_at

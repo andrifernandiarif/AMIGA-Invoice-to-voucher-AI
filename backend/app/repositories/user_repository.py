@@ -134,6 +134,9 @@ class UserRepository:
         Return True iff a ClientAssignment exists with is_active=True
         for this (user_id, client_id) pair. No caching — always hits the DB.
         """
+        user = await self.find_by_id(db, user_id)
+        if user and user.is_active and user.role.value == "SUPER_ADMIN":
+            return True
         result = await db.execute(
             select(ClientAssignment).where(
                 ClientAssignment.user_id == user_id,

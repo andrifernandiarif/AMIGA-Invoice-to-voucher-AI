@@ -40,6 +40,8 @@ export interface User {
   full_name?: string | null;
   job_title?: string | null;
   role: string;
+  permissions?: string[];
+  must_change_password?: boolean;
 }
 export interface Client {
   client_id: string;
@@ -52,6 +54,11 @@ export interface Invoice {
   client_name: string;
   status: string;
   flags: string[];
+  validation_issues?: { flag_type: string; details: unknown }[];
+  assigned_reviewer?: string | null;
+  assigned_reviewer_name?: string | null;
+  due_date?: string | null;
+  overdue?: boolean;
   created_at: string;
   request_date: string;
   channel: string;
@@ -92,6 +99,11 @@ export interface Detail {
   client_id: string;
   status: string;
   flags: string[];
+  validation_issues?: { flag_type: string; details: unknown }[];
+  assigned_reviewer?: string | null;
+  assigned_reviewer_name?: string | null;
+  due_date?: string | null;
+  overdue?: boolean;
   rejection_reason: string | null;
   tax_assignments?: Record<string, TaxAssignment>;
   totals?: VoucherTotals | null;
@@ -102,6 +114,14 @@ export interface Detail {
     content_type: string;
   }[];
   draft: {
+    source_invoices?: {
+      header: {
+        invoice_number?: string | null;
+        currency?: string | null;
+        total_amount?: string | number | null;
+        invoice_date?: string | null;
+      } | null;
+    }[];
     header_fields: Record<string, string | null> | null;
     line_items: (Record<string, string | number | null> & {
       line_item_id: string;
@@ -120,3 +140,9 @@ export const statusLabels: Record<string, string> = {
   SENT_TO_CLIENT: "Sent to client",
   REJECTED: "Rejected",
 };
+
+export function can(user: User, permission: string): boolean {
+  return (
+    user.role === "SUPER_ADMIN" || !!user.permissions?.includes(permission)
+  );
+}

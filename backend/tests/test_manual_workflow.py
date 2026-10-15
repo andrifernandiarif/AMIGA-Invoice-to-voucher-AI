@@ -142,7 +142,8 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
             assert len(records) == 1
             assert records[0].generated_by == data["reviewer"].user_id
             assert data["request"].status == RequestStatus.AMIGA_REVIEWED
-            assert data["request"].flags == []
+            assert "MISSING_EVIDENCE" in data["request"].flags
+            assert "CALC_DISCREPANCY" in data["request"].flags
             # Separate calls do not overwrite the approved voucher after a template edit.
             assert (await client.post(f"/requests/{request_id}/voucher-pdf")).status_code == 201
             assert upload.await_count == 1
@@ -162,7 +163,8 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
             assert data["request"].status == RequestStatus.SENT_TO_CLIENT
             assert (await client.get(f"/requests/{request_id}/voucher-preview")).status_code == 200
     events = (await db_session.execute(select(AuditEvent))).scalars().all()
-    assert not any(e.event_type == AuditEventType.FLAG_APPLIED for e in events)
+    assert any(e.event_type == AuditEventType.FLAG_APPLIED for e in events)
+    assert next(e for e in events if e.event_type == AuditEventType.APPROVED).payload["outstanding_issues"]
     assert any(e.event_type == AuditEventType.APPROVED for e in events)
     assert any(e.event_type == AuditEventType.VOUCHER_GENERATED for e in events)
 
@@ -223,9 +225,9 @@ async def test_template_versions_accept_real_jinja_and_keep_old_versions(db_sess
         assert response.status_code == 422
 
 
-async def test_extraction_does_not_run_discrepancy_validators(db_session):
+async def test_extraction_preserves_advisory_issues_without_exception(db_session):
     from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
-    from app.schemas.extraction import ExtractionResult
+    from app.schemas.extraction import ExtractionResult, HeaderFieldsSchema, LineItemSchema
     from app.services.extraction_worker import _process_job
 
     data = await seed(db_session)
@@ -251,7 +253,13 @@ async def test_extraction_does_not_run_discrepancy_validators(db_session):
             return False
 
     provider = MagicMock()
-    provider.extract = AsyncMock(return_value=ExtractionResult(header=None, line_items=[], payment_details=None))
+    provider.extract = AsyncMock(
+        return_value=ExtractionResult(
+            header=HeaderFieldsSchema(vendor_name="Incomplete", total_amount=10),
+            line_items=[LineItemSchema(sequence_number=1, line_total=10)],
+            payment_details=None,
+        )
+    )
     with (
         patch("app.services.extraction_worker.AsyncSessionLocal", return_value=SessionContext()),
         patch("app.services.extraction_worker.get_extraction_provider", return_value=provider),
@@ -267,7 +275,7 @@ async def test_extraction_does_not_run_discrepancy_validators(db_session):
     await db_session.refresh(req)
     await db_session.refresh(job)
     assert req.status == RequestStatus.READY_FOR_REFINEMENT
-    assert req.flags == []
+    assert "MISSING_EVIDENCE" in req.flags
     assert job.status == ExtractionJobStatus.DONE
 
 
@@ -287,7 +295,7 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
                     "approvers": '[{"full_name":"Budi Santoso","job_title":"BOD"}]',
                 },
                 files=[
-                    ("files", ("invoice.pdf", b"%PDF-invoice", "application/pdf")),
+                    ("files", ("invoice.pdf", valid_pdf(), "application/pdf")),
                     ("files", ("receipt.png", b"PNG-receipt", "image/png")),
                 ],
             )
@@ -304,7 +312,7 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
         .all()
     )
     assert [r.original_filename for r in rows] == ["invoice.pdf", "receipt.png"]
-    assert [r.file_size_bytes for r in rows] == [12, 11]
+    assert [r.file_size_bytes for r in rows] == [len(valid_pdf()), 11]
     async with await client_for(db_session, data["reviewer"]) as client:
         detail = await client.get(f"/requests/{request_id}")
         assert len(detail.json()["evidence_files"]) == 2
@@ -377,3 +385,14 @@ async def test_regeneration_keeps_original_pdf_history(db_session):
             assert len(records) == 2
             assert first.voucher_pdf_id != uuid.UUID(response.json()["voucher_pdf_id"])
             assert req.status == RequestStatus.SENT_TO_CLIENT
+
+
+def valid_pdf():
+    from io import BytesIO
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()

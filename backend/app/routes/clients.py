@@ -50,6 +50,8 @@ async def list_clients(
         )
         .order_by(Client.client_name)
     )
+    if _user.role.value == "SUPER_ADMIN":
+        return (await db.scalars(select(Client).where(Client.is_active.is_(True)).order_by(Client.client_name))).all()
     return result.scalars().all()
 
 
@@ -60,6 +62,8 @@ async def create_client(
     _user: User = Depends(get_current_user),
 ):
     """Create a new client company."""
+    if _user.role.value not in ("SUPER_ADMIN", "SYSTEM_ADMIN"):
+        raise HTTPException(403, "Only administrators can create clients.")
     # Check for duplicate name
     existing = await db.execute(select(Client).where(Client.client_name == body.client_name))
     if existing.scalar_one_or_none():

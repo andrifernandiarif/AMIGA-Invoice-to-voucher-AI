@@ -338,7 +338,7 @@ class TestCreateUserRoute:
 
     def test_missing_username_returns_422(self):
         """Missing 'username' field returns 422 with field named in error."""
-        app = self._build_users_app(_make_user(UserRole.SYSTEM_ADMIN))
+        app = self._build_users_app(_make_user(UserRole.SUPER_ADMIN))
 
         with TestClient(app) as client:
             resp = client.post(
@@ -357,7 +357,7 @@ class TestCreateUserRoute:
 
     def test_missing_role_returns_422(self):
         """Missing 'role' field returns 422."""
-        app = self._build_users_app(_make_user(UserRole.SYSTEM_ADMIN))
+        app = self._build_users_app(_make_user(UserRole.SUPER_ADMIN))
 
         with TestClient(app) as client:
             resp = client.post(
@@ -371,9 +371,9 @@ class TestCreateUserRoute:
             )
         assert resp.status_code == 422
 
-    def test_empty_assignments_returns_422(self):
-        """Empty assignments list returns 422 (min_length=1)."""
-        app = self._build_users_app(_make_user(UserRole.SYSTEM_ADMIN))
+    def test_missing_password_returns_422(self):
+        """Missing temporary password returns 422."""
+        app = self._build_users_app(_make_user(UserRole.SUPER_ADMIN))
 
         with TestClient(app) as client:
             resp = client.post(
@@ -389,7 +389,7 @@ class TestCreateUserRoute:
 
     def test_invalid_role_value_returns_422(self):
         """An unrecognized role enum value returns 422."""
-        app = self._build_users_app(_make_user(UserRole.SYSTEM_ADMIN))
+        app = self._build_users_app(_make_user(UserRole.SUPER_ADMIN))
 
         with TestClient(app) as client:
             resp = client.post(
@@ -433,4 +433,4 @@ class TestAllRolesRecognized:
 
         with TestClient(app) as client:
             resp = client.get("/protected", headers={"Authorization": "Bearer dummy"})
-        assert resp.status_code == 403
+        assert resp.status_code == (200 if role == UserRole.SUPER_ADMIN else 403)

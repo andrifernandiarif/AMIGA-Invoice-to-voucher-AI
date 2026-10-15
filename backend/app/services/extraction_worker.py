@@ -101,6 +101,7 @@ async def _persist_extraction(
         ai_label_visible=True,
         extraction_status=ExtractionStatus.COMPLETE if result.header else ExtractionStatus.PARTIAL,
         extracted_at=now,
+        source_invoices=[invoice.model_dump(mode="json") for invoice in result.source_invoices],
     )
     db.add(draft)
     await db.flush()
@@ -116,11 +117,11 @@ async def _persist_extraction(
             invoice_number=h.invoice_number,
             invoice_date=h.invoice_date,
             currency=h.currency,
-            subtotal=float(h.subtotal) if h.subtotal is not None else None,
-            total_amount=float(h.total_amount) if h.total_amount is not None else None,
-            tax_amount=float(h.tax_amount) if h.tax_amount is not None else None,
-            fee_amount=float(h.fee_amount) if h.fee_amount is not None else None,
-            rounding_adj=float(h.rounding_adj) if h.rounding_adj is not None else None,
+            subtotal=h.subtotal,
+            total_amount=h.total_amount,
+            tax_amount=h.tax_amount,
+            fee_amount=h.fee_amount,
+            rounding_adj=h.rounding_adj,
         )
         db.add(header_orm)
         await db.flush()
@@ -138,10 +139,10 @@ async def _persist_extraction(
             sequence_number=li.sequence_number,
             item_date=li.item_date,
             description=li.description,
-            quantity=float(li.quantity) if li.quantity is not None else None,
+            quantity=li.quantity,
             unit=li.unit,
-            unit_price=float(li.unit_price) if li.unit_price is not None else None,
-            line_total=float(li.line_total) if li.line_total is not None else None,
+            unit_price=li.unit_price,
+            line_total=li.line_total,
             extraction_status=status,
         )
         db.add(line_orm)
@@ -227,14 +228,18 @@ async def _process_job(job: ExtractionJob) -> None:
                 request_id=job.request_id,
             )
 
+            if not result.header or not any(item.line_total is not None for item in result.line_items):
+                raise ValueError("Extraction returned no usable invoice values. Please retry extraction.")
+
             # Idempotency check: if Draft already exists, skip creation
             existing_draft = await db.scalar(select(Draft).where(Draft.request_id == job.request_id))
 
             if not existing_draft:
                 await _persist_extraction(db, job.request_id, result)
 
-            # Extraction prepares data; the reviewer checks discrepancies manually.
-            req.flags = []
+            from app.services.advisory_validation import validate_request
+
+            await validate_request(db, req)
             await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REFINEMENT)
             await log_event(
                 db,

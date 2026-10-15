@@ -86,9 +86,18 @@ async def upload_invoice(
         raise HTTPException(
             422, "Enter the expense purpose and at least one approver's full name and professional role."
         )
+    from app.models.client import Client
+
+    target_client = await db.get(Client, client_id)
+    if not target_client or not target_client.is_active:
+        raise HTTPException(422, "Choose an active client.")
     if not current_user.full_name or not current_user.job_title:
         raise HTTPException(409, "Complete your full name and professional role in Account before uploading.")
 
+    from io import BytesIO
+    from pypdf import PdfReader
+
+    page_count = 0
     validated: list[tuple[str, bytes, str]] = []
     for f in files:
         ct = (f.content_type or "").lower()
@@ -101,6 +110,13 @@ async def upload_invoice(
         data = await f.read()
         if len(data) > MAX_FILE_SIZE_BYTES:
             raise HTTPException(413, f"'{name}' exceeds the 20 MB limit.")
+        if ct == "application/pdf":
+            try:
+                page_count += len(PdfReader(BytesIO(data)).pages)
+            except Exception:
+                raise HTTPException(422, f"{name}: unable to read PDF pages.")
+        else:
+            page_count += 1
         validated.append((name, data, ct))
 
     try:
@@ -132,7 +148,7 @@ async def upload_invoice(
         channel=channel,
         request_date=request_date,
         invoice_file_key=evidence_keys[0],
-        invoice_page_count=None,
+        invoice_page_count=page_count,
     )
 
     req.voucher_purpose = metadata.voucher_purpose
@@ -217,7 +233,7 @@ async def approve_request(
         raise HTTPException(403, "You do not have authority to approve Requests.")
 
     # Any other non-FINANCE_REVIEWER role
-    if current_user.role != UserRole.FINANCE_REVIEWER:
+    if current_user.role not in (UserRole.FINANCE_REVIEWER, UserRole.SUPER_ADMIN):
         raise HTTPException(403, "You do not have authority to approve Requests.")
 
     # ── Step 2 & 3: Load request and verify client assignment ──────────────────
@@ -232,7 +248,7 @@ async def approve_request(
         raise HTTPException(403, "You are not authorized to access Requests for this client.")
 
     # ── Step 4: Segregation of duties check ────────────────────────────────────
-    if req.uploader_id == current_user.user_id:
+    if req.uploader_id == current_user.user_id and current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(403, "Self-approval is not permitted.")
 
     if req.status != RequestStatus.READY_FOR_REVIEW:
@@ -254,7 +270,9 @@ async def approve_request(
         if summary["voucher_total"] is None or Decimal(summary["voucher_total"]) < 0:
             raise HTTPException(422, "Complete item totals and tax amounts before accepting the voucher.")
 
-    req.flags = []
+    from app.services.advisory_validation import validate_request
+
+    await validate_request(db, req, current_user.user_id)
     # ── Approve: transition status and write audit event ──────────────────────
     await request_repository.update_status(db, request_id, RequestStatus.AMIGA_REVIEWED)
 
@@ -264,6 +282,7 @@ async def approve_request(
         payload={
             "approver_id": str(current_user.user_id),
             "approved_at": datetime.now(timezone.utc).isoformat(),
+            "outstanding_issues": req.validation_issues or [],
         },
         request_id=request_id,
         actor_id=current_user.user_id,
@@ -308,7 +327,7 @@ async def reject_request(
     Requirements: 13.1, 13.2, 13.3, 13.4
     """
     # ── Step 1: Role check ─────────────────────────────────────────────────────
-    if current_user.role != UserRole.FINANCE_REVIEWER:
+    if current_user.role not in (UserRole.FINANCE_REVIEWER, UserRole.SUPER_ADMIN):
         raise HTTPException(403, "You do not have authority to reject Requests.")
 
     # ── Step 2: Load request ───────────────────────────────────────────────────
@@ -324,7 +343,7 @@ async def reject_request(
         raise HTTPException(403, "You are not authorized to access Requests for this client.")
 
     # ── Step 4: Segregation of duties check ────────────────────────────────────
-    if req.uploader_id == current_user.user_id:
+    if req.uploader_id == current_user.user_id and current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(403, "Self-rejection is not permitted.")
 
     # ── Step 5: Status check — must be READY_FOR_REVIEW or EXCEPTION ──────────

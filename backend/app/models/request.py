@@ -43,6 +43,8 @@ class InvoiceRequest(Base):
     voucher_number: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     voucher_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     submitter_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    validation_issues: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

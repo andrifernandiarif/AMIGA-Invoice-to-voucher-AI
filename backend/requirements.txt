@@ -19,3 +19,6 @@ pydyf==0.10.0
 Pillow==12.3.0
 pgvector==0.4.2
 python-telegram-bot==22.8
+
+argon2-cffi==25.1.0
+pypdf==6.1.1

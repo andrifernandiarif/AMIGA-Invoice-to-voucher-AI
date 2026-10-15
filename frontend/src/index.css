@@ -1527,3 +1527,16 @@ a:focus-visible {
   justify-content: space-between;
   margin-top: 12px;
 }
+
+.organization-grid { display:grid; grid-template-columns:minmax(240px,1fr) minmax(320px,2fr); gap:24px; }
+.directory-person { display:block; text-align:left; width:100%; margin:10px 0; padding:12px; }
+.management-form { display:grid; gap:16px; }
+.card label { display:grid; gap:6px; margin:12px 0; }
+.card input, .card select { padding:10px; border:1px solid #ccd3d0; border-radius:6px; }
+.sidebar nav[aria-label="Organization"] { display:grid; gap:12px; padding:18px; }
+@media(max-width:760px) { .organization-grid { grid-template-columns:1fr; } }
+.dashboard-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:16px; }
+.dashboard-filters label { display:grid; gap:6px; font-size:12px; }
+.dashboard-filters input, .dashboard-filters select { padding:8px; width:100%; border:1px solid #ccd3d0; border-radius:6px; }
+.dashboard-filters input[type=checkbox] { width:auto; }
+@media(max-width:760px) { .dashboard-filters { grid-template-columns:1fr 1fr; } }

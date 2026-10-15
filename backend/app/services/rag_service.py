@@ -22,6 +22,11 @@ async def ask(question, user, db, request_id=None) -> str:
     question = question.strip()
     if not question or len(question) > 2000:
         raise HTTPException(422, "Enter a question between 1 and 2000 characters.")
+    from app.permissions import permissions
+    if getattr(user, "must_change_password", False):
+        raise HTTPException(403, "Change your temporary password in the web app before continuing.")
+    if "chat" not in permissions(user):
+        raise HTTPException(403, "Invoice chat is unavailable for this role.")
     if not user.is_active:
         raise HTTPException(403, "This account is inactive.")
     authorized = (
@@ -29,12 +34,14 @@ async def ask(question, user, db, request_id=None) -> str:
         .join(ClientAssignment, ClientAssignment.client_id == InvoiceRequest.client_id)
         .where(ClientAssignment.user_id == user.user_id, ClientAssignment.is_active.is_(True))
     )
+    if user.role.value == "SUPER_ADMIN":
+        authorized = select(InvoiceRequest.request_id, InvoiceRequest.status)
     if request_id is not None:
         # Do not reveal whether a request outside the user's scope exists.
         if not (await db.execute(authorized.where(InvoiceRequest.request_id == request_id))).first():
             raise HTTPException(404, "Request not found or not accessible.")
     vector = await embedding_service.embed(question)
-    retrieved = await vector_store.similarity_search(vector, 8, db, filter_request_id=request_id, user_id=user.user_id)
+    retrieved = await vector_store.similarity_search(vector, 8, db, filter_request_id=request_id, user_id=None if user.role.value == "SUPER_ADMIN" else user.user_id)
     if not retrieved:
         return RagAnswer("I could not find accessible indexed information to answer that question.", 0)
     # Recheck the live relational assignment before any text reaches the LLM;

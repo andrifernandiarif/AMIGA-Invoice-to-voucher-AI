@@ -220,7 +220,7 @@ class TestProperty15StatusGate:
     """
 
     @given(status=st.sampled_from(_NON_AMIGA_REVIEWED_STATUSES))
-    @settings(max_examples=50)
+    @settings(max_examples=50, deadline=None)  # Database/HTTP assertions; timing is measured separately.
     def test_non_amiga_reviewed_download_is_denied(self, status: RequestStatus):
         """
         # Feature: invoice-to-voucher, Property 15: Download Gated on Status; Exactly One SENT_TO_CLIENT Event
@@ -270,7 +270,7 @@ class TestProperty15IdempotentSentToClient:
     """
 
     @given(num_downloads=st.integers(min_value=1, max_value=5))
-    @settings(max_examples=25)
+    @settings(max_examples=25, deadline=None)  # Database/HTTP assertions; timing is measured separately.
     def test_exactly_one_voucher_downloaded_event_for_n_downloads(
         self, num_downloads: int
     ):
@@ -320,7 +320,7 @@ class TestProperty15IdempotentSentToClient:
         )
 
     @given(num_downloads=st.integers(min_value=1, max_value=5))
-    @settings(max_examples=25)
+    @settings(max_examples=25, deadline=None)  # Database/HTTP assertions; timing is measured separately.
     def test_request_status_is_sent_to_client_after_n_downloads(
         self, num_downloads: int
     ):
@@ -381,7 +381,7 @@ class TestProperty15UnauthorizedDownload:
     """
 
     @given(dummy=st.just(None))
-    @settings(max_examples=10)
+    @settings(max_examples=10, deadline=None)  # Database/HTTP assertions; timing is measured separately.
     def test_no_assignment_returns_403(self, dummy):
         """
         # Feature: invoice-to-voucher, Property 15: Download Gated on Status; Exactly One SENT_TO_CLIENT Event
@@ -425,7 +425,7 @@ class TestProperty15UnauthorizedDownload:
         )
 
     @given(dummy=st.just(None))
-    @settings(max_examples=10)
+    @settings(max_examples=10, deadline=None)  # Database/HTTP assertions; timing is measured separately.
     def test_no_assignment_does_not_create_audit_events(self, dummy):
         """
         # Feature: invoice-to-voucher, Property 15: Download Gated on Status; Exactly One SENT_TO_CLIENT Event

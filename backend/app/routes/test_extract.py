@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, UploadFile, Depends
+from app.permissions import require_permission
 from fastapi.responses import JSONResponse
 
 from app.providers import get_extraction_provider
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/test", tags=["test"])
 ACCEPTED = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 
 
-@router.post("/extract")
+@router.post("/extract", dependencies=[Depends(require_permission("templates"))])
 async def test_extract(files: List[UploadFile]):
     """
     Upload one or more invoice files.

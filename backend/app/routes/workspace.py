@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.permissions import require_permission
+from app.services.workload import overdue, today_wib, CLOSED
 from app.dependencies import get_current_user, get_db, require_role
 from app.models.audit import AuditEventType
 from app.models.client import Client
@@ -50,11 +52,22 @@ def fields(obj, names):
 
 @router.get("/auth/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)):
-    return user
+    from app.permissions import permissions
+
+    return {**UserResponse.model_validate(user).model_dump(), "permissions": permissions(user)}
 
 
 @router.get("/requests")
-async def requests(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def requests(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("track")),
+    client_id: uuid.UUID | None = None,
+    status: RequestStatus | None = None,
+    reviewer_id: uuid.UUID | None = None,
+    due_from: date | None = None,
+    due_to: date | None = None,
+    overdue_only: bool = False,
+):
     stmt = (
         select(InvoiceRequest, Client.client_name)
         .join(Client, Client.client_id == InvoiceRequest.client_id)
@@ -73,12 +86,34 @@ async def requests(db: AsyncSession = Depends(get_db), user: User = Depends(get_
                 ]
             )
         )
+    if user.role.value == "SUPER_ADMIN":
+        stmt = select(InvoiceRequest, Client.client_name).join(Client).order_by(InvoiceRequest.created_at.desc())
+    if client_id:
+        stmt = stmt.where(InvoiceRequest.client_id == client_id)
+    if status:
+        stmt = stmt.where(InvoiceRequest.status == status)
+    if reviewer_id:
+        stmt = stmt.where(InvoiceRequest.assigned_reviewer == reviewer_id)
+    if due_from:
+        stmt = stmt.where(InvoiceRequest.due_date >= due_from)
+    if due_to:
+        stmt = stmt.where(InvoiceRequest.due_date <= due_to)
+    if overdue_only:
+        stmt = stmt.where(InvoiceRequest.due_date < today_wib(), InvoiceRequest.status.notin_(CLOSED))
     rows = (await db.execute(stmt)).all()
+    reviewer_ids = {req.assigned_reviewer for req, _ in rows if req.assigned_reviewer}
+    reviewers = (await db.scalars(select(User).where(User.user_id.in_(reviewer_ids)))).all() if reviewer_ids else []
+    reviewer_names = {r.user_id: r.full_name or r.username for r in reviewers}
     return [
         {
             **fields(req, "request_id client_id request_type channel request_date status created_at updated_at"),
             "status": req.status.value,
-            "flags": [],
+            "flags": req.flags or [],
+            "validation_issues": req.validation_issues or [],
+            "due_date": req.due_date,
+            "assigned_reviewer": req.assigned_reviewer,
+            "assigned_reviewer_name": reviewer_names.get(req.assigned_reviewer),
+            "overdue": overdue(req),
             "client_name": name,
             "invoice_page_count": req.invoice_page_count,
         }
@@ -87,7 +122,9 @@ async def requests(db: AsyncSession = Depends(get_db), user: User = Depends(get_
 
 
 @router.get("/requests/{request_id}")
-async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def detail(
+    request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("track"))
+):
     req = await accessible_request(request_id, db, user)
     uploader = await db.get(User, req.uploader_id)
     submitter = req.submitter_snapshot or {"full_name": uploader.full_name or "", "job_title": uploader.job_title or ""}
@@ -127,6 +164,7 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
             "draft_id": str(draft.draft_id),
             "ai_label_visible": draft.ai_label_visible,
             "extraction_status": draft.extraction_status,
+            "source_invoices": draft.source_invoices or [],
             "header_fields": fields(
                 header,
                 "vendor_name invoice_number invoice_date currency subtotal total_amount "
@@ -147,7 +185,11 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
         "request_id": req.request_id,
         "client_id": req.client_id,
         "status": req.status,
-        "flags": [],
+        "flags": req.flags or [],
+        "validation_issues": req.validation_issues or [],
+        "due_date": req.due_date,
+        "assigned_reviewer": req.assigned_reviewer,
+        "overdue": overdue(req),
         "rejection_reason": req.rejection_reason,
         "draft": data,
         "tax_assignments": tax_data,
@@ -164,7 +206,10 @@ async def detail(request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user
 
 @router.get("/evidence/{file_key:path}")
 async def evidence(
-    file_key: str, download: bool = False, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+    file_key: str,
+    download: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permission("track")),
 ):
     record = (await db.execute(select(EvidenceFile).where(EvidenceFile.file_key == file_key))).scalar_one_or_none()
     if record is None:
@@ -181,7 +226,10 @@ async def evidence(
 
 
 def ensure_editable(req, user):
-    if user.role.value == "CLIENT_PIC":
+    if user.role.value == "SUPER_ADMIN":
+        if req.status not in (RequestStatus.READY_FOR_REFINEMENT, RequestStatus.READY_FOR_REVIEW):
+            raise HTTPException(409, "This request is not editable.")
+    elif user.role.value == "CLIENT_PIC":
         if req.status != RequestStatus.READY_FOR_REFINEMENT:
             raise HTTPException(409, "Client edits are available only before submission to Finance Review.")
     elif user.role.value in ("FINANCE_REVIEWER", "SYSTEM_ADMIN"):
@@ -267,7 +315,11 @@ async def edit(
         user.user_id,
     )
     await log_event(
-        db, AuditEventType.FIELD_REVISED, payload=body.model_dump(), request_id=request_id, actor_id=user.user_id
+        db,
+        AuditEventType.FIELD_REVISED,
+        payload={**body.model_dump(), "old_value": str(old) if old is not None else None},
+        request_id=request_id,
+        actor_id=user.user_id,
     )
     if (
         model is LineItem
@@ -288,21 +340,35 @@ async def edit(
                 str(obj.line_total),
                 user.user_id,
             )
+            await log_event(
+                db,
+                AuditEventType.FIELD_REVISED,
+                {
+                    "field_path": f"line_items.{parts[1]}.line_total",
+                    "old_value": str(previous_total) if previous_total is not None else None,
+                    "new_value": str(obj.line_total),
+                    "automatic": True,
+                },
+                request_id=request_id,
+                actor_id=user.user_id,
+            )
     await db.flush()
     try:
         await refresh_assignments(db, draft.draft_id)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    req.flags = []
+    from app.services.advisory_validation import validate_request
+
+    await validate_request(db, req, user.user_id)
     req.updated_at = datetime.now(UTC)
-    return {"changed": True, "status": req.status, "flags": []}
+    return {"changed": True, "status": req.status, "flags": req.flags, "validation_issues": req.validation_issues}
 
 
 @router.get("/requests/{request_id}/revisions", response_model=list[FieldRevisionResponse])
 async def revisions(
     request_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN")),
+    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN")),
 ):
     await accessible_request(request_id, db, user)
     return await request_repository.get_field_revisions(db, request_id)
@@ -321,8 +387,8 @@ async def telemetry(body: PageLoad, db: AsyncSession = Depends(get_db), user: Us
             metric_type=MetricType.PAGE_LOAD_DURATION,
             subject_id=body.page,
             duration_ms=body.duration_ms,
-            is_breach=body.duration_ms > 3000,
-            breach_threshold_ms=3000,
+            is_breach=body.duration_ms > 2000,
+            breach_threshold_ms=2000,
             measured_at=datetime.now(UTC),
         )
     )

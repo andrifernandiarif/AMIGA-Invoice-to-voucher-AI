@@ -154,13 +154,14 @@ async def test_create_account_and_optional_signature_and_profile_privacy(db_sess
 
     data = await seed(db_session)
     admin = data["reviewer"]
-    admin.role = UserRole.SYSTEM_ADMIN
+    admin.role = UserRole.SUPER_ADMIN
     await db_session.commit()
     async with await client_for(db_session, admin) as client:
         result = await client.post(
             "/users",
             json={
                 "username": "new_pic",
+                "temporary_password": "New-Account-Password-2026",
                 "full_name": "Nadia Putri",
                 "job_title": "Finance Admin",
                 "role": "CLIENT_PIC",

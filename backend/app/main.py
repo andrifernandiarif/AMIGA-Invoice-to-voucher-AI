@@ -52,6 +52,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routes.operations import router as operations_router
+app.include_router(operations_router)
 app.include_router(chat_router)
 app.include_router(workspace_router)
 app.include_router(refinement_router)
@@ -66,4 +68,4 @@ app.include_router(voucher_router)
 
 @app.get("/health")
 async def health_check() -> dict:
-    return {"status": "ok", "workflow": "voucher-schema-v3"}
+    return {"status": "ok", "workflow": "organization-v4"}

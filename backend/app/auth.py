@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from app.config import settings
 
 
-def create_access_token(user_id: uuid.UUID, role: str) -> str:
+def create_access_token(user_id: uuid.UUID, role: str, token_version: int = 0) -> str:
     """
     Create a signed JWT with user_id and role claims.
     Expires after settings.JWT_EXPIRY_SECONDS seconds.
@@ -17,6 +17,7 @@ def create_access_token(user_id: uuid.UUID, role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_EXPIRY_SECONDS)
     payload = {
         "sub": str(user_id),
+        "ver": token_version,
         "role": role,
         "exp": expire,
     }

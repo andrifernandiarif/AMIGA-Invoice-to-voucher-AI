@@ -16,9 +16,10 @@ class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=200)
     full_name: str = Field(min_length=1, max_length=300)
     job_title: str = Field(min_length=1, max_length=200)
+    temporary_password: str = Field(min_length=12, max_length=128)
     signature_data: str | None = Field(default=None, max_length=3000000)
     role: UserRole
-    assignments: list[AssignmentIn] = Field(..., min_length=1)
+    assignments: list[AssignmentIn] = Field(default_factory=list)
 
 
 class UpdateRoleRequest(BaseModel):
@@ -36,6 +37,8 @@ class UserResponse(BaseModel):
     full_name: str | None = None
     job_title: str | None = None
     is_active: bool
+    must_change_password: bool = False
+    permissions: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
