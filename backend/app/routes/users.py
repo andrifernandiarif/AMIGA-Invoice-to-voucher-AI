@@ -1,8 +1,10 @@
 """Organization directory and delegated account management."""
 
 import uuid
+import csv
+import io
 from datetime import UTC, datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,6 +146,92 @@ async def update_role(
         actor_id=actor.user_id,
     )
     return user
+
+
+@router.post("/import-csv")
+async def import_csv(
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_permission("users")),
+):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(422, "Upload a CSV file.")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(422, "CSV must use UTF-8 encoding.") from exc
+
+    rows = list(csv.DictReader(io.StringIO(text)))
+    if not rows:
+        raise HTTPException(422, "CSV must contain a header and at least one account.")
+    if len(rows) > 100:
+        raise HTTPException(422, "CSV import is limited to 100 accounts.")
+
+    required = {"username", "full_name", "job_title", "role", "temporary_password"}
+    headers = set(rows[0].keys()) if rows[0] else set()
+    missing = sorted(required - headers)
+    if missing:
+        raise HTTPException(422, f"CSV is missing required columns: {', '.join(missing)}.")
+
+    prepared = []
+    usernames = set()
+    for number, row in enumerate(rows, start=2):
+        values = {key: (value or "").strip() for key, value in row.items() if key}
+        username = values.get("username", "")
+        if not username or not values.get("full_name") or not values.get("job_title"):
+            raise HTTPException(422, f"Row {number} must include username, full name, and professional role.")
+        if not values.get("temporary_password") or len(values["temporary_password"]) < 12:
+            raise HTTPException(422, f"Row {number} temporary password must be at least 12 characters.")
+        if username in usernames:
+            raise HTTPException(422, f"Row {number} duplicates username '{username}'.")
+        usernames.add(username)
+        try:
+            role = UserRole(values["role"].upper())
+        except ValueError as exc:
+            raise HTTPException(422, f"Row {number} has an invalid role.") from exc
+        check_role(actor, role)
+        client_ids = []
+        for value in values.get("client_ids", "").split(","):
+            if value.strip():
+                try:
+                    client_ids.append(uuid.UUID(value.strip()))
+                except ValueError as exc:
+                    raise HTTPException(422, f"Row {number} has an invalid client ID.") from exc
+        if client_ids and "assignments" not in permissions(actor):
+            raise HTTPException(403, "You do not have permission to import company assignments.")
+        prepared.append((number, values, role, client_ids))
+
+    existing = (
+        await db.scalars(select(User).where(User.username.in_(usernames)))
+    ).all()
+    if existing:
+        raise HTTPException(409, f"Username '{existing[0].username}' is already taken.")
+
+    for number, values, role, client_ids in prepared:
+        for client_id in client_ids:
+            try:
+                await check_client(db, actor, client_id)
+            except HTTPException as exc:
+                raise HTTPException(exc.status_code, f"Row {number}: {exc.detail}") from exc
+
+    for _, values, role, client_ids in prepared:
+        user = await user_repository.create_user(db, values["username"], role)
+        user.full_name = values["full_name"]
+        user.job_title = values["job_title"]
+        user.password_hash = hash_password(values["temporary_password"])
+        user.must_change_password = True
+        for client_id in client_ids:
+            await user_repository.add_assignment(db, user.user_id, client_id)
+        await log_event(
+            db,
+            AuditEventType.USER_MODIFIED,
+            {"action": "USER_CREATED_FROM_CSV", "user_id": str(user.user_id), "role": role.value},
+            actor_id=actor.user_id,
+        )
+
+    return {"imported": len(prepared)}
 
 
 class AccountState(BaseModel):

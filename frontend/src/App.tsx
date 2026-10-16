@@ -1,7 +1,9 @@
 import {
   FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -11,6 +13,7 @@ import {
   NavLink,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
@@ -85,6 +88,52 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
       <path d={paths[name] || paths.file} />
     </svg>
   );
+}
+
+function RouteTransition({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const location = useLocation();
+  const transitionKey = `${location.pathname}${location.search}`;
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const hasMounted = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+    setIsTransitioning(true);
+  }, [transitionKey]);
+
+  useEffect(() => {
+    if (!hasMounted.current) return;
+    const timer = window.setTimeout(() => {
+      setIsTransitioning(false);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [transitionKey]);
+
+  if (isTransitioning) {
+    const dashboardPath =
+      location.pathname === "/" ||
+      location.pathname === "/chat" ||
+      location.pathname === "/vouchers";
+    const formPath =
+      location.pathname === "/account" ||
+      location.pathname === "/upload" ||
+      location.pathname === "/templates";
+
+    return (
+      <PageSkeleton
+        variant={dashboardPath ? "dashboard" : formPath ? "form" : "content"}
+      />
+    );
+  }
+
+  return children;
 }
 const desktopLogo =
   "https://res.cloudinary.com/dyb0gqcmu/image/upload/v1792050683/Logo-AMIGA-2025.webp";
@@ -461,9 +510,6 @@ function Dashboard({
                 : "Track progress and pick up where you left off."}
             </p>
           </div>
-          <button className="text-button" onClick={load}>
-            Refresh ↻
-          </button>
         </div>
         <div className="dashboard-filters">
           <label>
@@ -1803,101 +1849,107 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           </div>
         </header>
         <main>
-          <Routes>
-            <Route path="/chat" element={<Dashboard user={user} />} />
-            <Route
-              path="/account"
-              element={
-                <div className="account-page">
-                  <Account key="profile" />
-                  <PasswordForm onChanged={logout} />
-                </div>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                can(user, "users") || can(user, "assignments") ? (
-                  <Organization user={user} />
-                ) : (
-                  <div className="card">
-                    Your role cannot manage users or assignments.
+          <RouteTransition>
+            <Routes>
+              <Route path="/chat" element={<Dashboard user={user} />} />
+              <Route
+                path="/account"
+                element={
+                  <div className="account-page">
+                    <Account key="profile" />
+                    <PasswordForm onChanged={logout} />
                   </div>
-                )
-              }
-            />
-            <Route
-              path="/metrics"
-              element={
-                can(user, "metrics") ? (
-                  <MetricsDashboard />
-                ) : (
-                  <div className="card">
-                    Your role cannot view performance metrics.
+                }
+              />
+              <Route
+                path="/users"
+                element={
+                  can(user, "users") || can(user, "assignments") ? (
+                    <Organization user={user} />
+                  ) : (
+                    <div className="card">
+                      Your role cannot manage users or assignments.
+                    </div>
+                  )
+                }
+              />
+              <Route
+                path="/metrics"
+                element={
+                  can(user, "metrics") ? (
+                    <MetricsDashboard />
+                  ) : (
+                    <div className="card">
+                      Your role cannot view performance metrics.
+                    </div>
+                  )
+                }
+              />
+              <Route
+                path="/clients"
+                element={
+                  can(user, "clients") ? (
+                    <ClientManager />
+                  ) : (
+                    <div className="card">
+                      Your role cannot manage companies.
+                    </div>
+                  )
+                }
+              />
+              <Route
+                path="/"
+                element={
+                  user.role === "USER_ADMIN" ? (
+                    <Organization user={user} />
+                  ) : (
+                    <Dashboard user={user} />
+                  )
+                }
+              />
+              <Route
+                path="/vouchers"
+                element={<Dashboard user={user} vouchers />}
+              />
+              <Route
+                path="/upload"
+                element={
+                  can(user, "upload") ? (
+                    <Upload />
+                  ) : (
+                    <div className="card">
+                      Your role cannot submit invoices.
+                    </div>
+                  )
+                }
+              />
+              <Route
+                path="/requests/:requestId"
+                element={<RequestView user={user} />}
+              />
+              <Route
+                path="/templates"
+                element={
+                  can(user, "templates") ? (
+                    <TemplateEditor />
+                  ) : (
+                    <div className="card">
+                      Template editing is available to system administrators.
+                    </div>
+                  )
+                }
+              />
+              <Route
+                path="*"
+                element={
+                  <div className="empty-state">
+                    <h1>Page not found</h1>
+                    <Link to="/">Back to overview</Link>
                   </div>
-                )
-              }
-            />
-            <Route
-              path="/clients"
-              element={
-                can(user, "clients") ? (
-                  <ClientManager />
-                ) : (
-                  <div className="card">Your role cannot manage companies.</div>
-                )
-              }
-            />
-            <Route
-              path="/"
-              element={
-                user.role === "USER_ADMIN" ? (
-                  <Organization user={user} />
-                ) : (
-                  <Dashboard user={user} />
-                )
-              }
-            />
-            <Route
-              path="/vouchers"
-              element={<Dashboard user={user} vouchers />}
-            />
-            <Route
-              path="/upload"
-              element={
-                can(user, "upload") ? (
-                  <Upload />
-                ) : (
-                  <div className="card">Your role cannot submit invoices.</div>
-                )
-              }
-            />
-            <Route
-              path="/requests/:requestId"
-              element={<RequestView user={user} />}
-            />
-            <Route
-              path="/templates"
-              element={
-                can(user, "templates") ? (
-                  <TemplateEditor />
-                ) : (
-                  <div className="card">
-                    Template editing is available to system administrators.
-                  </div>
-                )
-              }
-            />
-            <Route
-              path="*"
-              element={
-                <div className="empty-state">
-                  <h1>Page not found</h1>
-                  <Link to="/">Back to overview</Link>
-                </div>
-              }
-            />
-          </Routes>
+                }
+              />
+            </Routes>
+          </RouteTransition>
         </main>
         <footer className="app-footer">
           <span>amiga · Thoughtful tools for finance teams</span>

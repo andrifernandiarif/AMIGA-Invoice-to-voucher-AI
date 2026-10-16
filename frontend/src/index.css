@@ -1832,7 +1832,8 @@ a:focus-visible {
 .account-page {
   display: grid;
   gap: 28px;
-  max-width: 960px;
+  width: 100%;
+  max-width: none;
 }
 .account-page .account-form {
   max-width: none;
@@ -2186,7 +2187,7 @@ a:focus-visible {
   }
 }
 
-.organization-page { max-width: 1180px; }
+.organization-page { width: 100%; max-width: none; }
 .organization-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:28px; }
 .organization-eyebrow, .card-kicker { margin:0 0 8px; color:var(--teal-dark); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
 .organization-heading h1 { margin:0; font-family:"Manrope",sans-serif; font-size:30px; letter-spacing:-.04em; }
@@ -2200,6 +2201,9 @@ a:focus-visible {
 .button-secondary { background:#fff; border-color:#dce6e5; color:var(--teal-dark); }
 .button-secondary:hover:not(:disabled) { border-color:var(--teal); background:#f4fbfb; }
 .csv-upload { cursor:pointer; }
+.csv-upload.is-loading { color:var(--teal-dark); cursor:wait; }
+.csv-upload.is-loading::before { width:12px; height:12px; margin-right:8px; border:2px solid #c7e4e3; border-top-color:var(--teal); border-radius:50%; content:""; animation:csv-spin .7s linear infinite; }
+@keyframes csv-spin { to { transform:rotate(360deg); } }
 .csv-upload input { display:none; }
 .organization-toolbar { justify-content:space-between; margin-bottom:18px; }
 .directory-search { display:flex; align-items:center; gap:9px; width:min(100%, 340px); margin:0; padding:11px 14px; border:1px solid #dce6e5; border-radius:9px; background:#fff; }
@@ -2231,8 +2235,8 @@ a:focus-visible {
 .is-expanded .accordion-chevron { transform:rotate(45deg); }
 .directory-expand { display:grid; grid-template-rows:0fr; transition:grid-template-rows .22s ease; }
 .is-expanded .directory-expand { grid-template-rows:1fr; }
-.directory-expand-inner { min-height:0; overflow:hidden; padding:0 16px; }
-.is-expanded .directory-expand-inner { padding-top:14px; padding-bottom:18px; }
+.directory-expand-inner { min-height:0; overflow:hidden; padding:0 18px; background:#fcfefe; }
+.is-expanded .directory-expand-inner { padding-top:18px; padding-bottom:20px; }
 
 /* ── Inline manage panel ──────────────────────────────────────────── */
 
@@ -2242,7 +2246,10 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  min-height: 24px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf0f1;
 }
 .directory-expand-username {
   margin: 0;
@@ -2256,8 +2263,8 @@ a:focus-visible {
 .inline-manage-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 14px;
+  gap: 10px;
+  padding-top: 18px;
   border-top: 1px solid #edf0f1;
 }
 .inline-manage-section:first-child { border-top: 0; padding-top: 0; }
@@ -2271,9 +2278,10 @@ a:focus-visible {
 }
 
 .inline-manage-field-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px;
 }
 .inline-manage-field {
   display: flex;
@@ -2322,28 +2330,36 @@ a:focus-visible {
   width: 100%;
 }
 .im-password-wrap .password-visibility {
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
+  right: 4px;
+  bottom: 0;
+  width: 32px;
+  height: 36px;
+  padding: 0;
+  transform: none;
 }
 
 .inline-manage-field-row > .button {
-  width: 140px;
-  flex: 0 0 140px;
+  min-width: 128px;
   height: 36px;
   padding: 0 16px;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
-/* Revoke row: company name + revoke button side-by-side */
+.inline-manage-assignment-list {
+  display: grid;
+  gap: 7px;
+}
 .inline-manage-revoke-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: #f8fafb;
+  min-height: 38px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid #edf0f1;
+  border-radius: 7px;
+  background: #fff;
   font-size: 12px;
   color: #292839;
 }
@@ -2381,8 +2397,9 @@ a:focus-visible {
   .directory-card { padding:18px; }
   .organization-toolbar { align-items:stretch; flex-direction:column; }
   .directory-toolbar-summary { justify-content:space-between; }
-  .inline-manage-field-row { align-items: stretch; flex-wrap:wrap; }
-  .inline-manage-field-row > .button { width:100%; flex-basis:100%; }
+  .directory-expand-inner { padding-left: 14px; padding-right: 14px; }
+  .inline-manage-field-row { grid-template-columns: 1fr; gap: 10px; }
+  .inline-manage-field-row > .button { width:100%; }
   .directory-pagination { flex-wrap:wrap; }
 }
 .dashboard-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:16px; }

@@ -28,6 +28,7 @@ export default function Organization({ user }: { user: User }) {
   const [client, setClient] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -89,11 +90,27 @@ export default function Organization({ user }: { user: User }) {
     setIsModalOpen(true);
   }
 
-  function importCsv(e: ChangeEvent<HTMLInputElement>) {
+  async function importCsv(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMessage(`${file.name} selected. CSV import is ready for processing.`);
     e.target.value = "";
+    setImporting(true);
+    setMessage(`Importing ${file.name}...`);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await apiFetch("/api/users/import-csv", {
+        method: "POST",
+        body,
+      });
+      const result = (await response.json()) as { imported: number };
+      await load();
+      setMessage(`${result.imported} account(s) imported successfully.`);
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function run(action: () => Promise<unknown>, success: string) {
@@ -154,27 +171,28 @@ export default function Organization({ user }: { user: User }) {
       <div className="organization-heading">
         <div>
           <p className="organization-eyebrow">Organization</p>
-          <h1>People directory</h1>
+          <h1>People & Assignments</h1>
           <p className="organization-subtitle">
             Manage account access, roles, and company assignments.
           </p>
         </div>
         {manage && (
           <div className="organization-actions">
-            <label className="button button-secondary csv-upload">
+            <label className={`button button-secondary csv-upload${importing ? " is-loading" : ""}`}>
               <input
                 type="file"
                 accept=".csv,text/csv"
                 onChange={importCsv}
+                disabled={importing}
               />
-              Import CSV
+              {importing ? "Importing..." : "Import CSV"}
             </label>
             <button
               className="button button-primary"
               type="button"
               onClick={openCreateModal}
             >
-              Create
+              + Account
             </button>
           </div>
         )}
@@ -232,7 +250,6 @@ export default function Organization({ user }: { user: User }) {
               <p className="card-kicker">Team members</p>
               <h2>Directory</h2>
             </div>
-            <span className="directory-dot" aria-hidden="true" />
           </div>
 
           <div className="directory-list">
@@ -276,8 +293,6 @@ export default function Organization({ user }: { user: User }) {
                   {/* Accordion body — inline manage panel */}
                   <div className="directory-expand">
                     <div className="directory-expand-inner">
-
-                      {/* ── Top bar: username ── */}
                       <div className="inline-manage-topbar">
                         <p className="directory-expand-username">
                           @{p.username}
@@ -286,7 +301,6 @@ export default function Organization({ user }: { user: User }) {
 
                       {manage && isSelected && (
                         <>
-                          {/* ── Role ── */}
                           <div className="inline-manage-section">
                             <p className="inline-manage-section-title">Role</p>
                             <div className="inline-manage-field-row">
@@ -320,7 +334,6 @@ export default function Organization({ user }: { user: User }) {
                             </div>
                           </div>
 
-                          {/* ── Reset password ── */}
                           <div className="inline-manage-section">
                             <p className="inline-manage-section-title">
                               Reset password
@@ -361,7 +374,6 @@ export default function Organization({ user }: { user: User }) {
                         </>
                       )}
 
-                      {/* ── Company assignments ── */}
                       {can(user, "assignments") && isSelected && (
                         <div className="inline-manage-section">
                           <p className="inline-manage-section-title">
@@ -369,13 +381,7 @@ export default function Organization({ user }: { user: User }) {
                           </p>
 
                           {selected!.assignments.length > 0 && (
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 6,
-                              }}
-                            >
+                            <div className="inline-manage-assignment-list">
                               {selected!.assignments.map((id) => (
                                 <div
                                   key={id}
@@ -422,7 +428,6 @@ export default function Organization({ user }: { user: User }) {
                           </div>
                         </div>
                       )}
-
                     </div>
                   </div>
                 </div>
