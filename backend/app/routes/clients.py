@@ -8,13 +8,16 @@ POST /clients        — create a new client (any authenticated user, for dev co
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db, require_role
+from app.models.audit import AuditEventType
+from app.services.audit_service import log_event
 from app.models.client import Client
 from app.services.voucher_identity import default_client_code
 from app.models.client_assignment import ClientAssignment
@@ -88,3 +91,29 @@ async def create_client(
 @router.get("/all", response_model=list[ClientOut])
 async def all_clients(db: AsyncSession = Depends(get_db), admin: User = Depends(require_role("SYSTEM_ADMIN"))):
     return (await db.scalars(select(Client).where(Client.is_active.is_(True)).order_by(Client.client_name))).all()
+
+
+@router.delete("/{client_id}", status_code=204)
+async def remove_client(
+    client_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_role("SYSTEM_ADMIN")),
+):
+    """Archive a company and revoke access without deleting financial history."""
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(404, "Company not found.")
+    if not client.is_active:
+        return
+    client.is_active = False
+    await db.execute(
+        update(ClientAssignment)
+        .where(ClientAssignment.client_id == client_id, ClientAssignment.is_active.is_(True))
+        .values(is_active=False, revoked_at=datetime.now(UTC))
+    )
+    await log_event(
+        db,
+        AuditEventType.USER_MODIFIED,
+        {"action": "COMPANY_REMOVED", "client_id": str(client_id)},
+        actor_id=actor.user_id,
+    )

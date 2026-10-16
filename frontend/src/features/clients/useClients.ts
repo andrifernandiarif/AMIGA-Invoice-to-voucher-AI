@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, Client, json } from "../../api";
+import { api, apiFetch, Client, json } from "../../api";
 import { errorMessage } from "../../utils/errors";
 
 export function useClients() {
@@ -38,5 +38,19 @@ export function useClients() {
       setBusy(false);
     }
   }
-  return { clients, name, setName, code, setCode, message, busy, loading, submit };
+  async function remove(client: Client) {
+    if (!window.confirm(`Remove company "${client.client_name}"? It will no longer be available for new requests or assignments. Existing vouchers and audit history will be preserved.`)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await apiFetch(`/api/clients/${client.client_id}`, { method: "DELETE" });
+      await load();
+      setMessage("Company removed.");
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { remove, clients, name, setName, code, setCode, message, busy, loading, submit };
 }

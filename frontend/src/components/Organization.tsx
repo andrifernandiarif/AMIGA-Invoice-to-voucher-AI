@@ -128,6 +128,18 @@ export default function Organization({ user }: { user: User }) {
     }
   }
 
+  async function changeAccountState(person: Person) {
+    const removing = person.is_active;
+    if (!window.confirm(removing
+      ? `Remove account "${person.username}"? Sign-in and existing sessions will be disabled. Voucher and audit history will be preserved.`
+      : `Restore account "${person.username}"?`)) return;
+    await run(async () => {
+      await api(`/users/${person.user_id}/status`, json({ is_active: !removing }, "PATCH"));
+      setSelected(null);
+      setExpandedId(null);
+    }, removing ? "Account removed. Access revoked; history preserved." : "Account restored.");
+  }
+
   function create(e: FormEvent) {
     e.preventDefault();
     void run(
@@ -301,6 +313,18 @@ export default function Organization({ user }: { user: User }) {
 
                       {manage && isSelected && (
                         <>
+                          <div className="inline-manage-section">
+                            <p className="inline-manage-section-title">Account access</p>
+                            <button
+                              type="button"
+                              className={p.is_active ? "danger-outline" : "button button-secondary"}
+                              disabled={busy || p.user_id === user.user_id || (user.role !== "SUPER_ADMIN" && ["SYSTEM_ADMIN", "SUPER_ADMIN"].includes(p.role))}
+                              onClick={() => void changeAccountState(p)}
+                            >
+                              {p.is_active ? "Remove account" : "Restore account"}
+                            </button>
+                            <p className="muted">Removal disables access and preserves voucher and audit history.</p>
+                          </div>
                           <div className="inline-manage-section">
                             <p className="inline-manage-section-title">Role</p>
                             <div className="inline-manage-field-row">

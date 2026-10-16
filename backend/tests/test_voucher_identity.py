@@ -124,7 +124,8 @@ async def test_metadata_refinement_then_freeze_and_render_multiple_approvers(db_
     assert "Rina Setiawan" in rendered and "Changed after submission" not in rendered
     assert "Budi Santoso" in rendered and "Sari Dewi" in rendered
     assert "data:image/png;base64," in rendered
-    assert rendered.count("<img") == 1  # external signatures remain empty
+    assert rendered.count("<img") == 2  # AMIGA logo and submitter signature only.
+    assert rendered.count('alt="Tanda tangan pengaju"') == 1  # External signatures remain empty.
 
 
 async def test_generated_header_fields_cannot_be_overridden(db_session):

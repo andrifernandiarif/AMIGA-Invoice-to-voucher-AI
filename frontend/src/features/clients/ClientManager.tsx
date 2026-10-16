@@ -2,8 +2,8 @@ import { Feedback, LoadingState } from "../../components/ui/Feedback";
 import { useClients } from "./useClients";
 
 export function ClientManager() {
-  const { clients, name, setName, code, setCode, message, busy, loading, submit } = useClients();
-  const success = message === "Company created.";
+  const { clients, name, setName, code, setCode, message, busy, loading, submit, remove } = useClients();
+  const success = ["Company created.", "Company removed."].includes(message);
   return (
     <section className="card feature-card client-card">
       <div className="feature-card-heading">
@@ -17,7 +17,7 @@ export function ClientManager() {
         <button className="primary action-button" disabled={busy}>{busy ? "Creating…" : "Create company"}</button>
       </form>
       <Feedback message={message} tone={success ? "success" : "error"} />
-      {loading ? <LoadingState label="Loading companies…" /> : <div className="client-list">{clients.map((client) => <div className="client-list-item" key={client.client_id}><strong>{client.client_name}</strong><span>{client.client_code || "No code"}</span></div>)}</div>}
+      {loading ? <LoadingState label="Loading companies…" /> : <div className="client-list">{clients.map((client) => <div className="client-list-item" key={client.client_id}><strong>{client.client_name}</strong><span>{client.client_code || "No code"}</span><button type="button" className="danger-outline" disabled={busy} onClick={() => void remove(client)} aria-label={`Remove company ${client.client_name}`}>Remove</button></div>)}</div>}
     </section>
   );
 }

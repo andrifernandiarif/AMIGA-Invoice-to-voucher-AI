@@ -257,6 +257,8 @@ async def update_status(
     actor: User = Depends(require_permission("users")),
 ):
     user = await target_user(db, actor, user_id)
+    if not body.is_active and user.user_id == actor.user_id:
+        raise HTTPException(409, "You cannot remove your own account.")
     await protect_last_super(db, user, not body.is_active)
     user.is_active = body.is_active
     user.token_version = (user.token_version or 0) + 1

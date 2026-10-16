@@ -15,6 +15,7 @@ from app.models.client import Client
 from app.models.audit import AuditEvent
 from app.routes.auth import router as auth_router, _attempts
 from app.routes.users import router as users_router
+from app.routes.clients import router as clients_router
 from app.routes.workspace import router as workspace_router
 from app.routes.operations import router as operations_router
 from app.routes.requests import router as requests_router
@@ -54,6 +55,7 @@ async def http(db):
     for router in (
         auth_router,
         users_router,
+        clients_router,
         workspace_router,
         operations_router,
         requests_router,
@@ -480,3 +482,37 @@ async def test_document_timing_metrics_stay_client_scoped(db_session):
     assert response.status_code == 200
     documents = next(row for row in response.json() if row["metric_type"] == "EXTRACTION_DOCUMENT_DURATION")
     assert documents["count"] == 1
+
+
+@pytest.mark.parametrize("role", ["SYSTEM_ADMIN", "SUPER_ADMIN", "SERVICE_LEAD", "FINANCE_REVIEWER", "CLIENT_PIC"])
+async def test_company_removal_preserves_history_and_revokes_assignments(db_session, role):
+    from app.models.client_assignment import ClientAssignment
+
+    data = await seed(db_session)
+    actor = await account(db_session, role)
+    company_id = data["request"].client_id
+    async with await http(db_session) as client:
+        response = await client.delete(f"/clients/{company_id}", headers=bearer(actor))
+        if role not in ("SYSTEM_ADMIN", "SUPER_ADMIN"):
+            assert response.status_code == 403
+            assert (await db_session.get(Client, company_id)).is_active
+            return
+        assert response.status_code == 204
+        assert not (await db_session.get(Client, company_id)).is_active
+        assert await db_session.get(InvoiceRequest, data["request"].request_id) is not None
+        assignments = (await db_session.scalars(select(ClientAssignment).where(ClientAssignment.client_id == company_id))).all()
+        assert assignments and all(not a.is_active and a.revoked_at for a in assignments)
+        assert company_id not in [uuid.UUID(c["client_id"]) for c in (await client.get("/clients/all", headers=bearer(actor))).json()]
+        assert (await client.delete(f"/clients/{company_id}", headers=bearer(actor))).status_code == 204
+        events = (await db_session.scalars(select(AuditEvent))).all()
+        assert sum(e.payload.get("action") == "COMPANY_REMOVED" for e in events) == 1
+        assert (await client.delete(f"/clients/{uuid.uuid4()}", headers=bearer(actor))).status_code == 404
+
+
+async def test_cannot_remove_own_account_even_with_another_super_admin(db_session):
+    actor = await account(db_session, "SUPER_ADMIN")
+    await account(db_session, "SUPER_ADMIN")
+    async with await http(db_session) as client:
+        response = await client.patch(f"/users/{actor.user_id}/status", headers=bearer(actor), json={"is_active": False})
+        assert response.status_code == 409
+        assert actor.is_active
