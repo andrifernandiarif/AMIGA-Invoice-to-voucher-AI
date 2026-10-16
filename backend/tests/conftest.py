@@ -30,9 +30,3 @@ _audit_module.AuditEvent.__table__.c["payload"].type = JSON()
 # SQLite does not support server_default of "{}" for JSON — remove it
 _req_module.InvoiceRequest.__table__.c["flags"].server_default = None
 _audit_module.AuditEvent.__table__.c["payload"].server_default = None
-
-@pytest.fixture(autouse=True)
-def isolate_approval_indexing(monkeypatch):
-    """Approval tests never call AWS; dedicated RAG tests override this mock."""
-    from unittest.mock import AsyncMock
-    monkeypatch.setattr('app.routes.requests.index_request', AsyncMock(return_value=4))

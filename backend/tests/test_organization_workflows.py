@@ -147,15 +147,15 @@ async def test_effective_permissions_and_user_management_guard(db_session, role)
                 "assignments": [],
             },
         )
-        assert response.status_code == (201 if role in ("SUPER_ADMIN", "USER_ADMIN") else 403)
+        assert response.status_code == (201 if role in ("SUPER_ADMIN", "SYSTEM_ADMIN") else 403)
 
 
 async def test_delegated_admin_cannot_escalate_or_manage_admins(db_session):
-    admin = await account(db_session, "USER_ADMIN")
+    admin = await account(db_session, "SYSTEM_ADMIN")
     root = await account(db_session, "SUPER_ADMIN")
     user = await account(db_session, "CLIENT_PIC")
     async with await http(db_session) as client:
-        for role in ("SUPER_ADMIN", "SYSTEM_ADMIN", "USER_ADMIN"):
+        for role in ("SUPER_ADMIN", "SYSTEM_ADMIN"):
             assert (
                 await client.patch(f"/users/{user.user_id}/role", headers=bearer(admin), json={"role": role})
             ).status_code == 403
@@ -215,7 +215,7 @@ async def test_scoped_assignments_allocation_deadlines_and_revocation(db_session
         assert len((await client.get("/requests?overdue_only=true", headers=bearer(lead))).json()) == 1
         assert (await client.get(f"/requests?client_id={other.client_id}", headers=bearer(lead))).json() == []
         assert (
-            await client.delete(f"/users/{data['reviewer'].user_id}/assignments/{req.client_id}", headers=bearer(lead))
+            await client.delete(f"/users/{data['reviewer'].user_id}/assignments/{req.client_id}", headers=bearer(root))
         ).status_code == 204
         assert (await client.get(f"/requests/{req.request_id}", headers=bearer(data["reviewer"]))).status_code == 403
         # The same account's existing token observes its role changes immediately.
@@ -241,7 +241,7 @@ async def test_super_admin_self_approval_keeps_warnings_and_audit(db_session):
             response = await client.post(f"/requests/{data['request'].request_id}/approve", headers=bearer(user))
         assert response.status_code == 200, response.text
         assert "MISSING_EVIDENCE" in data["request"].flags
-        assert "Payment authorization remains with the client" in renderer.HTML.call_args.kwargs["string"]
+        assert "Persetujuan pihak klien" in renderer.HTML.call_args.kwargs["string"]
         timeline = await client.get(f"/requests/{data['request'].request_id}/history?limit=1", headers=bearer(user))
         assert timeline.status_code == 200 and timeline.json()["next_offset"] == 1
         all_events = await client.get(f"/requests/{data['request'].request_id}/history", headers=bearer(user))
@@ -383,7 +383,8 @@ async def test_upload_extract_submit_flagged_approve_download_history(db_session
         ):
             await _process_job(job)
         detail = (await client.get(f"/requests/{request_id}", headers=bearer(data["uploader"]))).json()
-        assert detail["status"] == "READY_FOR_REFINEMENT" and len(detail["draft"]["line_items"]) == 3
+        assert detail["status"] == "EXCEPTION" and detail["workflow_stage"] == "REFINEMENT"
+        assert len(detail["draft"]["line_items"]) == 3
         assert set(detail["flags"]) == {"MISSING_EVIDENCE", "POSSIBLE_DUPLICATE", "CALC_DISCREPANCY"}
         assert (
             await client.post(f"/requests/{request_id}/submit-review", headers=bearer(data["uploader"]))
@@ -411,9 +412,9 @@ async def test_upload_extract_submit_flagged_approve_download_history(db_session
         ] == "SENT_TO_CLIENT"
 
 
-async def test_user_admin_cannot_grant_company_access_during_creation(db_session):
+async def test_system_admin_can_manage_accounts_but_client_records_stay_scoped(db_session):
     data = await seed(db_session)
-    admin = await account(db_session, "USER_ADMIN")
+    admin = await account(db_session, "SYSTEM_ADMIN")
     async with await http(db_session) as client:
         response = await client.post(
             "/users",
@@ -427,8 +428,8 @@ async def test_user_admin_cannot_grant_company_access_during_creation(db_session
                 "assignments": [{"client_id": str(data["client"].client_id)}],
             },
         )
-        assert response.status_code == 403
-        assert (await client.get("/requests", headers=bearer(admin))).status_code == 403
+        assert response.status_code == 201
+        assert (await client.get("/requests", headers=bearer(admin))).json() == []
         assert (await client.get(f"/requests/{data['request'].request_id}", headers=bearer(admin))).status_code == 403
 
 
@@ -442,3 +443,40 @@ async def test_deactivation_revokes_existing_sessions(db_session):
             await client.patch(f"/users/{user.user_id}/status", headers=bearer(root), json={"is_active": False})
         ).status_code == 200
         assert (await client.get("/auth/me", headers=headers)).status_code == 401
+
+
+async def test_user_admin_consolidation_preserves_credentials_and_expires_sessions(db_session):
+    from sqlalchemy import update
+    user = await account(db_session, "USER_ADMIN")
+    username, password_hash = user.username, user.password_hash
+    old_session = bearer(user)
+    # Exercise the account-data operation used by migration 0014.
+    await db_session.execute(update(User).where(User.role == UserRole.USER_ADMIN).values(
+        role=UserRole.SYSTEM_ADMIN, token_version=User.token_version + 1))
+    await db_session.commit()
+    await db_session.refresh(user)
+    assert user.username == username and user.password_hash == password_hash
+    async with await http(db_session) as client:
+        assert (await client.get("/auth/me", headers=old_session)).status_code == 401
+        current = await client.get("/auth/me", headers=bearer(user))
+        assert current.status_code == 200 and current.json()["role"] == "SYSTEM_ADMIN"
+        assert "users" in current.json()["permissions"] and "approve" not in current.json()["permissions"]
+
+
+async def test_document_timing_metrics_stay_client_scoped(db_session):
+    from app.models.telemetry import TelemetryRecord, MetricType
+    from app.models.client_assignment import ClientAssignment
+    data = await seed(db_session)
+    actor = await account(db_session, "SYSTEM_ADMIN")
+    db_session.add(ClientAssignment(user_id=actor.user_id, client_id=data["client"].client_id,
+                                   is_active=True, assigned_at=datetime.now(timezone.utc)))
+    for subject in (str(data["request"].request_id), str(uuid.uuid4())):
+        db_session.add(TelemetryRecord(record_id=uuid.uuid4(), metric_type=MetricType.EXTRACTION_DOCUMENT_DURATION,
+            subject_id=f"{subject}/document/1", duration_ms=1000, page_count=1, is_breach=False,
+            breach_threshold_ms=15000, measured_at=datetime.now(timezone.utc)))
+    await db_session.commit()
+    async with await http(db_session) as client:
+        response = await client.get("/telemetry/metrics", headers=bearer(actor))
+    assert response.status_code == 200
+    documents = next(row for row in response.json() if row["metric_type"] == "EXTRACTION_DOCUMENT_DURATION")
+    assert documents["count"] == 1

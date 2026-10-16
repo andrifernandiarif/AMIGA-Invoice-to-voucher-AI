@@ -2760,3 +2760,14 @@ a:focus-visible {
     max-height: 80px;
   }
 }
+
+.pdf-evidence { width: 100%; min-width: 0; overflow: hidden; }
+.pdf-evidence canvas { display: block; max-width: 100%; height: auto !important; }
+.pdf-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; font-size: 12px; }
+
+.duplicate-matches { padding-left: 20px; overflow-wrap: anywhere; }
+.duplicate-matches li { margin: 8px 0; }
+
+.route-content { animation: route-enter 160ms ease-out; min-width: 0; }
+@keyframes route-enter { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .route-content { animation: none; } }

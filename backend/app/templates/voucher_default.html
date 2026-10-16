@@ -1,81 +1,53 @@
 <!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<title>Voucher Pengeluaran</title>
+<html lang="id"><head><meta charset="UTF-8"><title>Voucher Pengeluaran</title>
 <style>
-  @page { size: A4; margin: 22mm 18mm; }
-  * { box-sizing: border-box; }
-  body { margin: 0; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.45; }
-  h1 { text-align: center; font-size: 18pt; letter-spacing: 1.2px; margin: 0 0 28px; }
-  .header { width: 100%; border-collapse: collapse; margin-bottom: 26px; }
-  .header th { width: 145px; text-align: left; vertical-align: top; font-weight: normal; padding: 5px 0; }
-  .header .colon { width: 16px; vertical-align: top; padding: 5px 0; }
-  .header .value { padding: 5px 0; overflow-wrap: anywhere; }
-  .details { width: 100%; table-layout: fixed; border-collapse: collapse; }
-  .details thead { display: table-header-group; }
-  .details th, .details td { border: 1px solid #333; padding: 10px 8px; vertical-align: top; overflow-wrap: anywhere; }
-  .details th { background: #f0f0f0; text-align: center; font-size: 9pt; font-weight: bold; white-space: nowrap; }
-  .details tr { break-inside: avoid; }
-  .details .number { text-align: center; }
-  .details .amount { text-align: right; }
-  .details .date { text-align: center; font-size: 9pt; }
-  .details .total td { font-weight: bold; background: #f6f6f6; border-top: 2px solid #333; }
-  .empty-row td { height: 42px; }
-  .signatures { margin-top: 30px; font-size: 0; }
-  .signature-block { display: inline-block; width: 50%; padding: 0 16px; vertical-align: top; font-size: 10pt; margin-bottom: 26px; break-inside: avoid; overflow-wrap: anywhere; }
-  .signature-title { text-align: center; font-weight: bold; margin-bottom: 0; }
-  .signature-space { height: 90px; text-align: center; padding: 6px; }
-  .signature-space img { max-height: 78px; max-width: 100%; object-fit: contain; }
-  .signature-line { border-top: 1px solid #333; width: 86%; margin: 0 auto 14px; }
-  .signature-field { margin: 8px 0; }
-</style>
-</head>
-<body>
-<h1>VOUCHER PENGELUARAN</h1>
-<table class="header">
-  <tr><th>Nomor</th><td class="colon">:</td><td class="value">{{ voucher_number }}</td></tr>
-  <tr><th>Nama</th><td class="colon">:</td><td class="value">{{ voucher_name }}</td></tr>
-  <tr><th>Peruntukan</th><td class="colon">:</td><td class="value">{{ voucher_purpose }}</td></tr>
-  <tr><th>Tanggal/Periode</th><td class="colon">:</td><td class="value">{{ voucher_period }}</td></tr>
-  <tr><th>Nominal</th><td class="colon">:</td><td class="value">{{ voucher_nominal }}</td></tr>
+@page { size:A4; margin:18mm 18mm 28mm; }
+* { box-sizing:border-box; }
+body { margin:0; font:10pt/1.5 Arial,Helvetica,sans-serif; color:#23383e; }
+.brand { color:#147d79; font-size:10pt; font-weight:bold; letter-spacing:2px; }
+.top { border-bottom:2px solid #147d79; padding-bottom:17px; margin-bottom:20px; }
+h1 { font-size:23pt; line-height:1.2; margin:8px 0; font-weight:600; color:#173e43; }
+.ref { color:#597176; font-size:9pt; }
+h2 { font-size:10pt; color:#147d79; text-transform:uppercase; letter-spacing:1px; margin:22px 0 9px; }
+.meta { width:100%; border-collapse:collapse; }
+.meta th { text-align:left; width:30%; font-weight:normal; color:#597176; }
+.meta th,.meta td { padding:4px 0; vertical-align:top; overflow-wrap:anywhere; }
+.purpose { background:#f0f7f6; padding:12px 15px; margin:16px 0; border-left:3px solid #147d79; }
+.items { border-collapse:collapse; width:100%; table-layout:fixed; font-size:9pt; }
+.items thead { display:table-header-group; }
+.items th { background:#edf4f3; color:#31585c; text-align:left; font-size:8pt; padding:9px 7px; }
+.items td { border-bottom:1px solid #dfe9e8; padding:9px 7px; vertical-align:top; overflow-wrap:anywhere; }
+.items tr { break-inside:avoid; }
+.items .num { text-align:right; }
+.total { break-inside:avoid; margin:16px 0 24px; padding:16px; background:#173e43; color:white; text-align:right; }
+.total small { display:block; font-size:8pt; letter-spacing:1px; }
+.total strong { font-size:21pt; font-weight:600; }
+.note { color:#597176; font-size:8pt; }
+.block { break-inside:avoid; }
+.signatures { margin-top:26px; font-size:0; }
+.signature { display:inline-block; width:50%; padding:0 14px 22px; vertical-align:top; font-size:9pt; text-align:center; break-inside:avoid; overflow-wrap:anywhere; }
+.signature-label { color:#597176; font-size:8pt; text-transform:uppercase; letter-spacing:1px; }
+.signature-space { height:76px; padding:4px; }
+.signature-space img { max-height:68px; max-width:100%; object-fit:contain; }
+.signature-name { border-top:1px solid #9cb3b5; padding-top:7px; font-weight:bold; }
+</style></head><body>
+<div class="top"><div class="brand">AMIGA</div><h1>Voucher Pengeluaran</h1><div class="ref">{{ voucher_number or 'Nomor belum tersedia' }}{% if voucher_period %} · {{ voucher_period }}{% endif %}</div></div>
+<table class="meta">
+{% if client_name %}<tr><th>Perusahaan / klien</th><td>{{ client_name }}{% if client_code %} ({{ client_code }}){% endif %}</td></tr>{% endif %}
+<tr><th>Nama voucher</th><td>{{ voucher_name or 'Belum dicantumkan' }}</td></tr>
+<tr><th>Vendor</th><td>{{ vendor_name or 'Belum dicantumkan' }}</td></tr>
+<tr><th>Referensi faktur</th><td>{{ invoice_number or 'Belum dicantumkan' }}</td></tr>
+{% if invoice_date_display %}<tr><th>Tanggal faktur</th><td>{{ invoice_date_display }}</td></tr>{% endif %}
+{% if currency %}<tr><th>Mata uang</th><td>{{ currency }}</td></tr>{% endif %}
+{% if extracted_total_display %}<tr><th>Nominal faktur (ekstraksi)</th><td>{{ currency_label }} {{ extracted_total_display }}</td></tr>{% endif %}
 </table>
-<table class="details">
-  <colgroup><col style="width:6%"><col style="width:16%"><col style="width:32%"><col style="width:12%"><col style="width:17%"><col style="width:17%"></colgroup>
-  <thead><tr><th>NO</th><th>TANGGAL</th><th>KETERANGAN</th><th>JUMLAH</th><th>HARGA</th><th>TOTAL</th></tr></thead>
-  <tbody>
-    {% for item in line_items_table %}
-    <tr>
-      <td class="number">{{ loop.index }}</td>
-      <td class="date">{{ item.date }}</td>
-      <td>{{ item.description }}</td>
-      <td class="number">{{ item.quantity_display }}</td>
-      <td class="amount">{{ item.unit_price_display }}</td>
-      <td class="amount">{{ item.line_total_display }}</td>
-    </tr>
-    {% endfor %}
-    {% if not line_items_table %}
-    <tr class="empty-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>
-    {% endif %}
-    <tr class="total"><td colspan="5">TOTAL</td><td class="amount">{{ voucher_line_total }}</td></tr>
-  </tbody>
-</table>
-<div class="signatures">
-  <div class="signature-block">
-    <div class="signature-title">Diajukan Oleh</div>
-    <div class="signature-space">{% if submitter.signature_data %}<img src="{{ submitter.signature_data }}" alt="Tanda tangan pengaju">{% endif %}</div>
-    <div class="signature-line"></div>
-    <div class="signature-field">Nama: {{ submitter.full_name }}</div>
-    <div class="signature-field">Jabatan: {{ submitter.job_title }}</div>
-  </div>
-  {% for person in approvers %}<div class="signature-block">
-    <div class="signature-title">Disetujui Oleh</div>
-    <div class="signature-space"></div>
-    <div class="signature-line"></div>
-    <div class="signature-field">Nama: {{ person.full_name }}</div>
-    <div class="signature-field">Jabatan: {{ person.job_title }}</div>
-  </div>{% endfor %}
-</div>
-<p class="authorization-disclaimer" style="margin-top:24px;font-size:9pt">{{ authorization_disclaimer }}</p>
-</body>
-</html>
+<div class="purpose"><strong>Peruntukan</strong><br>{{ voucher_purpose or 'Belum dicantumkan' }}</div>
+{% if source_references|length > 1 %}<div class="block"><h2>Faktur sumber</h2><table class="meta">{% for source in source_references %}<tr><th>{{ source.vendor_name or 'Vendor belum tersedia' }}</th><td>{{ source.invoice_number or 'Referensi belum tersedia' }}{% if source.invoice_date %} · {{ source.invoice_date }}{% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
+<h2>Rincian pengeluaran</h2>
+<table class="items"><thead><tr><th style="width:7%">No.</th><th>Keterangan</th>{% if show_dates %}<th style="width:16%">Tanggal</th>{% endif %}{% if show_quantity %}<th class="num" style="width:13%">Jumlah</th>{% endif %}<th class="num" style="width:23%">Nilai ({{ currency or 'mata uang belum tersedia' }})</th></tr></thead><tbody>
+{% for item in line_items_table %}<tr><td>{{ loop.index }}</td><td>{{ item.description or 'Keterangan belum tersedia' }}{% if item.unit_price_display %}<div class="note">Harga satuan: {{ item.unit_price_display }}{% if item.unit %} / {{ item.unit }}{% endif %}</div>{% endif %}</td>{% if show_dates %}<td>{{ item.date or 'Belum tersedia' }}</td>{% endif %}{% if show_quantity %}<td class="num">{{ item.quantity_display or 'Belum tersedia' }}{% if item.unit %} {{ item.unit }}{% endif %}</td>{% endif %}<td class="num">{{ item.line_total_display or 'Belum tersedia' }}</td></tr>{% else %}<tr><td colspan="5">Rincian pengeluaran belum tersedia.</td></tr>{% endfor %}
+</tbody></table>
+<div class="total"><small>TOTAL VOUCHER (HASIL PERHITUNGAN)</small><strong>{{ currency_label }} {{ voucher_total_display or 'Belum tersedia' }}</strong></div>
+{% if bank_name or bank_account_number or payment_reference %}<div class="block"><h2>Informasi pembayaran</h2><table class="meta">{% if bank_name %}<tr><th>Bank</th><td>{{ bank_name }}</td></tr>{% endif %}{% if bank_account_number %}<tr><th>Nomor rekening</th><td>{{ bank_account_number }}</td></tr>{% endif %}{% if payment_reference %}<tr><th>Referensi pembayaran</th><td>{{ payment_reference }}</td></tr>{% endif %}</table></div>{% endif %}
+<div class="signatures"><div class="signature"><div class="signature-label">Diajukan oleh</div><div class="signature-space">{% if submitter.signature_data %}<img src="{{ submitter.signature_data }}" alt="Tanda tangan pengaju">{% endif %}</div><div class="signature-name">{{ submitter.full_name or 'Pengaju belum dicantumkan' }}</div>{% if submitter.job_title %}<div>{{ submitter.job_title }}</div>{% endif %}</div>{% for person in approvers %}<div class="signature"><div class="signature-label">Persetujuan pihak klien</div><div class="signature-space"></div><div class="signature-name">{{ person.full_name }}</div>{% if person.job_title %}<div>{{ person.job_title }}</div>{% endif %}</div>{% endfor %}</div>
+</body></html>

@@ -15,6 +15,7 @@ Requirements validated:
 """
 
 from __future__ import annotations
+from tests.pdf_fixtures import pdf_bytes
 
 import uuid
 from datetime import date, datetime, timezone
@@ -50,7 +51,7 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_FAKE_PDF = b"%PDF-1.4 fake-pdf-for-checkpoint-31"
+_FAKE_PDF = pdf_bytes()
 _TEST_TEMPLATE = """\
 <!DOCTYPE html><html><body>
 <h1>VOUCHER</h1>

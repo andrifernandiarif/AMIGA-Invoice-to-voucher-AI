@@ -30,7 +30,7 @@ async def http_client(db, user):
 
 
 async def seed(db):
-    data = await _seed_base(db)
+    data = await _seed_base(db, with_draft=False)
     draft = Draft(
         draft_id=uuid.uuid4(),
         request_id=data["request"].request_id,

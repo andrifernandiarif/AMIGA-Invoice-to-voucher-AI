@@ -14,6 +14,7 @@ PBT test file: tests/pbt/test_property15_download.py (Task 30.4)
 """
 
 from __future__ import annotations
+from tests.pdf_fixtures import pdf_bytes
 
 import uuid
 from datetime import date, datetime, timezone
@@ -51,7 +52,7 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_FAKE_PDF_BYTES = b"%PDF-1.4 fake pdf bytes"
+_FAKE_PDF_BYTES = pdf_bytes()
 _DISCLAIMER = (
     "This voucher is prepared for client review purposes only. "
     "Payment authorization remains with the client."

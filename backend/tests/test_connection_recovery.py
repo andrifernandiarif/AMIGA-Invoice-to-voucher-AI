@@ -211,7 +211,8 @@ async def test_multi_pdf_worker_releases_sessions_during_storage_and_model_io(db
     failure.assert_not_awaited()
     await db_session.refresh(req)
     await db_session.refresh(job)
-    assert req.status == RequestStatus.READY_FOR_REFINEMENT
+    assert req.status == RequestStatus.EXCEPTION
+    assert req.workflow_stage == "REFINEMENT"
     assert job.status == ExtractionJobStatus.DONE
     draft = await db_session.scalar(select(Draft).where(Draft.request_id == req.request_id))
     assert len(draft.source_invoices) == 2

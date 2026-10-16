@@ -45,6 +45,8 @@ class CompletenessValidator:
     Missing or empty fields result in ValidationResult.is_valid=False with missing_fields populated.
     """
 
+    REQUIRED_HEADER_FIELDS = ["vendor_name", "invoice_number", "invoice_date", "currency", "subtotal", "total_amount"]
+
     REQUIRED_PAYMENT_FIELDS = ["bank_account_number", "bank_name", "payment_reference"]
     """Required fields in PaymentDetails."""
 
@@ -52,7 +54,7 @@ class CompletenessValidator:
     """Required fields in each LineItem."""
 
     @staticmethod
-    async def validate(draft: Draft, db: AsyncSession) -> ValidationResult:
+    async def validate(draft: Draft, db: AsyncSession, *, data=None) -> ValidationResult:
         """
         Validate completeness of a draft's extracted fields.
 
@@ -71,12 +73,12 @@ class CompletenessValidator:
         """
         missing_fields: list[str] = []
 
-        # Load PaymentDetails for this draft
-        payment_result = await db.execute(
-            select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id)
-        )
-        payment = payment_result.scalar_one_or_none()
-
+        if data is not None:
+            payment = data.payment
+        else:
+            # Load PaymentDetails for this draft
+            payment_result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
+            payment = payment_result.scalar_one_or_none()
         # Check payment details
         if payment is None:
             missing_fields.extend(CompletenessValidator.REQUIRED_PAYMENT_FIELDS)
@@ -87,22 +89,39 @@ class CompletenessValidator:
                 if val is None or (isinstance(val, str) and not val.strip()):
                     missing_fields.append(field_name)
 
-        # Load LineItems for this draft
-        line_items_result = await db.execute(
-            select(LineItem)
-            .where(LineItem.draft_id == draft.draft_id)
-            .order_by(LineItem.sequence_number)
-        )
-        line_items = line_items_result.scalars().all()
-
+        if data is not None:
+            line_items = data.items
+        else:
+            # Load LineItems for this draft
+            line_items_result = await db.execute(
+                select(LineItem).where(LineItem.draft_id == draft.draft_id).order_by(LineItem.sequence_number)
+            )
+            line_items = line_items_result.scalars().all()
         # Check each line item
         for line_item in line_items:
             for field_name in CompletenessValidator.REQUIRED_LINE_FIELDS:
                 val = getattr(line_item, field_name, None)
-                if val is None:
+                if val is None or (isinstance(val, str) and not val.strip()):
                     # Use 1-based sequence number in error message for user-friendly reference
                     missing_fields.append(f"line_items[{line_item.sequence_number}].{field_name}")
 
+        if not line_items:
+            missing_fields.append("line_items")
+        header = (
+            data.header
+            if data is not None
+            else await db.scalar(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
+        )
+        from app.validation.duplicate import invoice_identities
+
+        for index, identity in enumerate(invoice_identities(header, draft.source_invoices)):
+            for field in CompletenessValidator.REQUIRED_HEADER_FIELDS:
+                value = identity.get(field)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    prefix = f"source_invoices[{index + 1}]" if len(draft.source_invoices or []) > 1 else "header"
+                    missing_fields.append(f"{prefix}.{field}")
+        if header is None:
+            missing_fields.append("invoice_header")
         # Return result: valid if no missing fields, invalid otherwise
         is_valid = len(missing_fields) == 0
         return ValidationResult(is_valid=is_valid, missing_fields=missing_fields)

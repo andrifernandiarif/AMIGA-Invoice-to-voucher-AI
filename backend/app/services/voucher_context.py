@@ -1,11 +1,15 @@
 """Map reviewed invoice data into editable Indonesian voucher templates."""
 
-from datetime import date, datetime, UTC
-from zoneinfo import ZoneInfo
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.services.manual_tax import TAX_LABELS, effect_of, totals
 from app.services.tax_service import compute_tax_summary
+
+
+def text(value):
+    return str(value).strip() if value is not None else ""
 
 
 def number(value) -> str:
@@ -34,21 +38,21 @@ def display_created_at(value):
     return value.astimezone(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M WIB")
 
 
-def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer):
+def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer, *, client=None, sources=None):
     h = header
     subtotal = Decimal(str(h.subtotal)) if h and h.subtotal is not None else Decimal("0")
     tax = compute_tax_summary(line_items, tax_map, subtotal)
     total_amount = h.total_amount if h and h.total_amount is not None else tax["grand_total"]
-    currency = h.currency or "" if h else ""
+    currency = text(h.currency) if h else ""
     currency_label = "Rp" if currency == "IDR" else currency
     items = []
     for item in line_items:
         assignment = tax_map.get(str(item.line_item_id))
         items.append(
             {
-                "description": item.description or "",
+                "description": text(item.description),
                 "quantity": str(item.quantity) if item.quantity is not None else "",
-                "unit": item.unit or "",
+                "unit": text(item.unit),
                 "unit_price": str(item.unit_price) if item.unit_price is not None else "",
                 "line_total": str(item.line_total) if item.line_total is not None else "",
                 "tax_type": (
@@ -118,7 +122,16 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         items = expanded
         total_amount = Decimal(summary["voucher_total"]) if summary["voucher_total"] is not None else None
         items_total = total_amount
-    return {
+    context = {
+        "client_name": getattr(client, "client_name", "") or "",
+        "client_code": getattr(client, "client_code", "") or "",
+        "source_references": [(s.get("header") or {}) for s in (sources or [])],
+        "currency_label": currency_label,
+        "invoice_date_display": display_date(h.invoice_date) if h else "",
+        "extracted_total_display": number(h.total_amount) if h else "",
+        "voucher_total_display": number(total_amount),
+        "show_dates": any(row.get("date") for row in items),
+        "show_quantity": any(row.get("quantity_display") for row in items),
         # Indonesian voucher header. Purpose and item dates stay blank until entered.
         "voucher_number": getattr(req, "voucher_number", None) or "",
         "voucher_name": (h.voucher_name if h else None) or (h.vendor_name or "" if h else ""),
@@ -153,3 +166,13 @@ def build_voucher_context(req, header, line_items, payment, tax_map, disclaimer)
         "payment_reference": payment.payment_reference or "" if payment else "",
         "authorization_disclaimer": disclaimer,
     }
+    for key, value in context.items():
+        if isinstance(value, str):
+            context[key] = text(value)
+    context["source_references"] = [
+        {key: text(value) if isinstance(value, str) else value for key, value in row.items()}
+        for row in context["source_references"]
+    ]
+    context["submitter"] = {key: text(value) for key, value in context["submitter"].items()}
+    context["approvers"] = [{key: text(value) for key, value in person.items()} for person in context["approvers"]]
+    return context

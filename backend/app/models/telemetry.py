@@ -2,13 +2,16 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum as SAEnum, Integer, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
 
 
 class MetricType(str, enum.Enum):
+    EXTRACTION_DOCUMENT_DURATION = "EXTRACTION_DOCUMENT_DURATION"
+    VOUCHER_AVAILABILITY_DURATION = "VOUCHER_AVAILABILITY_DURATION"
     EXTRACTION_DURATION = "EXTRACTION_DURATION"
     PAGE_LOAD_DURATION = "PAGE_LOAD_DURATION"
     PDF_GENERATION_DURATION = "PDF_GENERATION_DURATION"

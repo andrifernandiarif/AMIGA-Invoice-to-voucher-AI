@@ -1,9 +1,10 @@
+import { lazy, Suspense } from "react";
+import { workflowStage } from "./api";
 import {
   FormEvent,
   type ReactNode,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -90,50 +91,9 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   );
 }
 
-function RouteTransition({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function RouteTransition({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const transitionKey = `${location.pathname}${location.search}`;
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const hasMounted = useRef(false);
-
-  useLayoutEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
-    }
-    setIsTransitioning(true);
-  }, [transitionKey]);
-
-  useEffect(() => {
-    if (!hasMounted.current) return;
-    const timer = window.setTimeout(() => {
-      setIsTransitioning(false);
-    }, 220);
-    return () => window.clearTimeout(timer);
-  }, [transitionKey]);
-
-  if (isTransitioning) {
-    const dashboardPath =
-      location.pathname === "/" ||
-      location.pathname === "/chat" ||
-      location.pathname === "/vouchers";
-    const formPath =
-      location.pathname === "/account" ||
-      location.pathname === "/upload" ||
-      location.pathname === "/templates";
-
-    return (
-      <PageSkeleton
-        variant={dashboardPath ? "dashboard" : formPath ? "form" : "content"}
-      />
-    );
-  }
-
-  return children;
+  return <div className="route-content" key={`${location.pathname}${location.search}`}>{children}</div>;
 }
 const desktopLogo =
   "https://res.cloudinary.com/dyb0gqcmu/image/upload/v1792050683/Logo-AMIGA-2025.webp";
@@ -213,7 +173,6 @@ function roleTitle(role: string) {
     FINANCE_REVIEWER: "Finance workspace",
     SERVICE_LEAD: "Service lead workspace",
     SYSTEM_ADMIN: "System admin workspace",
-    USER_ADMIN: "User administration",
     SUPER_ADMIN: "Admin workspace",
   };
   return titles[role] || "Your workspace";
@@ -337,13 +296,9 @@ function Dashboard({
       setItems(await api<Invoice[]>("/requests"));
       if (!timing.recorded) {
         timing.recorded = true;
-        void api(
-          "/telemetry/page-load",
-          json({
-            page: "dashboard",
-            duration_ms: Math.round(performance.now() - timing.started),
-          }),
-        ).catch(() => {});
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          void api("/telemetry/page-load", json({page: "dashboard", duration_ms: Math.round(performance.now() - timing.started)})).catch(() => {});
+        }));
       }
       setError("");
     } catch (e) {
@@ -363,7 +318,9 @@ function Dashboard({
   const source = vouchers ? approved : items;
   const visible = source.filter(
     (i) =>
-      (filter === "all" || i.status === filter) &&
+      (filter === "all" || i.status === filter ||
+        (filter === "READY_FOR_REFINEMENT" && workflowStage(i) === "REFINEMENT") ||
+        (filter === "READY_FOR_REVIEW" && workflowStage(i) === "FINANCE_REVIEW")) &&
       (!clientFilter || i.client_id === clientFilter) &&
       (!reviewerFilter || i.assigned_reviewer === reviewerFilter) &&
       (!dueFrom || (!!i.due_date && i.due_date >= dueFrom)) &&
@@ -431,10 +388,10 @@ function Dashboard({
                   : "Ready for review",
               value: items.filter(
                 (i) =>
-                  i.status ===
+                  workflowStage(i) ===
                   (user.role === "CLIENT_PIC"
-                    ? "READY_FOR_REFINEMENT"
-                    : "READY_FOR_REVIEW"),
+                    ? "REFINEMENT"
+                    : "FINANCE_REVIEW"),
               ).length,
               icon: "clock",
               note:
@@ -990,6 +947,8 @@ function Upload() {
   );
 }
 
+const PdfEvidence = lazy(() => import("./components/PdfEvidence"));
+
 function RequestView({ user }: { user: User }) {
   const { requestId } = useParams();
   const [data, setData] = useState<Detail | null>(null);
@@ -1006,11 +965,7 @@ function RequestView({ user }: { user: User }) {
       ),
     [],
   );
-  useEffect(() => {
-    api<TaxOption[]>("/tax-options")
-      .then(setTaxOptions)
-      .catch((e) => setError(e.message));
-  }, []);
+  const optionsLoaded = useRef(false);
   const [reason, setReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const [evidenceIndex, setEvidenceIndex] = useState(0);
@@ -1025,16 +980,15 @@ function RequestView({ user }: { user: User }) {
   }));
   const load = useCallback(async () => {
     try {
-      setData(await api<Detail>(`/requests/${requestId}`));
-      if (!timing.recorded) {
-        timing.recorded = true;
-        void api(
-          "/telemetry/page-load",
-          json({
-            page: "review",
-            duration_ms: Math.round(performance.now() - timing.started),
-          }),
-        ).catch(() => {});
+      const next = await api<Detail>(`/requests/${requestId}`);
+      setData(next);
+      if (next.tax_options) setTaxOptions(next.tax_options);
+      else if (!optionsLoaded.current) {
+        optionsLoaded.current = true;
+        void api<TaxOption[]>("/tax-options").then(setTaxOptions).catch((e) => {
+          optionsLoaded.current = false;
+          setError(e.message);
+        });
       }
     } catch (e) {
       setError((e as Error).message);
@@ -1083,11 +1037,25 @@ function RequestView({ user }: { user: User }) {
     };
   }, [evidenceKey, evidenceRetry]);
 
+  const recordReviewReady = useCallback(() => {
+    if (timing.recorded) return;
+    timing.recorded = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      void api("/telemetry/page-load", json({ page: "review", duration_ms: Math.round(performance.now() - timing.started) })).catch(() => {});
+    }));
+  }, [timing]);
+  useEffect(() => {
+    if (data && data.evidence_files.length === 0) recordReviewReady();
+  }, [data, recordReviewReady]);
   async function action(path: string, body?: unknown) {
+    const actionStarted = performance.now();
     setBusy(true);
     setError("");
     try {
       await api(`/requests/${requestId}/${path}`, json(body ?? {}));
+      if (path === "approve") void api("/telemetry/voucher-availability", json({
+        page: requestId, duration_ms: Math.round(performance.now() - actionStarted),
+      })).catch(() => {});
       await load();
       setRejecting(false);
     } catch (e) {
@@ -1153,10 +1121,10 @@ function RequestView({ user }: { user: User }) {
     }
   }
   const refining =
-    can(user, "refine") && data?.status === "READY_FOR_REFINEMENT";
+    can(user, "refine") && !!data && (data.workflow_stage === "REFINEMENT" || data.status === "READY_FOR_REFINEMENT");
   const editable =
     !!data &&
-    (refining || (can(user, "review") && data.status === "READY_FOR_REVIEW"));
+    (refining || (can(user, "review") && (data.workflow_stage === "FINANCE_REVIEW" || data.status === "READY_FOR_REVIEW")));
 
   const dirty =
     metadataDirty ||
@@ -1256,7 +1224,7 @@ function RequestView({ user }: { user: User }) {
               </section>
             )}
           {can(user, "upload") &&
-            (data.status === "EXCEPTION" ||
+            ((data.status === "EXCEPTION" && !data.workflow_stage && !data.draft) ||
               (data.status === "READY_FOR_REFINEMENT" &&
                 !data.draft?.header_fields &&
                 !data.draft?.line_items.length)) && (
@@ -1274,6 +1242,7 @@ function RequestView({ user }: { user: User }) {
                 </button>
               </section>
             )}
+          {data.duplicate_detection_coverage?.note && <p className="muted">{data.duplicate_detection_coverage.note}</p>}
           {!!data.validation_issues?.length && (
             <ValidationWarnings issues={data.validation_issues} />
           )}
@@ -1325,7 +1294,7 @@ function RequestView({ user }: { user: User }) {
                     : `Save changes${dirty ? ` (${Object.keys(changes).length})` : ""}`}
                 </button>
               )}
-              {can(user, "approve") && data.status === "READY_FOR_REVIEW" && (
+              {can(user, "approve") && (data.workflow_stage === "FINANCE_REVIEW" || data.status === "READY_FOR_REVIEW") && (
                 <>
                   <button
                     className="danger-outline"
@@ -1424,9 +1393,12 @@ function RequestView({ user }: { user: User }) {
                       className="evidence-image"
                       src={evidenceUrl}
                       alt="Uploaded invoice evidence"
+                      onLoad={recordReviewReady}
                     />
                   ) : (
-                    <iframe title="Original invoice" src={evidenceUrl} />
+                    <Suspense fallback={<p className="muted">Loading invoice viewer…</p>}>
+                      <PdfEvidence url={evidenceUrl} onReady={recordReviewReady} />
+                    </Suspense>
                   )
                 ) : (
                   <div className="empty-state">
@@ -1587,7 +1559,7 @@ function RequestView({ user }: { user: User }) {
                       approvers={data.approvers || []}
                       editable={
                         can(user, "refine") &&
-                        data.status === "READY_FOR_REFINEMENT"
+                        workflowStage(data) === "REFINEMENT"
                       }
                       onDirty={setMetadataDirty}
                       onSaved={() => {
@@ -1900,7 +1872,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
               <Route
                 path="/"
                 element={
-                  user.role === "USER_ADMIN" ? (
+                  user.role === "SYSTEM_ADMIN" ? (
                     <Organization user={user} />
                   ) : (
                     <Dashboard user={user} />

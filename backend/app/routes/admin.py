@@ -15,15 +15,13 @@ from app.services.template_service import _DEFAULT_TEMPLATE_PATH
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _REQUIRED_FIELDS = {
-    "authorization_disclaimer",
     "voucher_number",
     "voucher_name",
     "voucher_purpose",
     "voucher_period",
-    "voucher_nominal",
     "line_items_table",
 }
-_LEGACY_FIELDS = {"vendor_name", "invoice_number", "line_items_table", "authorization_disclaimer"}
+_LEGACY_FIELDS = {"vendor_name", "invoice_number", "line_items_table"}
 
 
 @router.get("/templates")
@@ -61,8 +59,6 @@ async def create_template(
         variables = meta.find_undeclared_variables(Environment().parse(template_content))
     except TemplateSyntaxError as exc:
         raise HTTPException(422, f"Invalid template syntax at line {exc.lineno}: {exc.message}")
-    if "authorization_disclaimer" not in variables:
-        raise HTTPException(422, "Template must include authorization_disclaimer.")
     missing = _REQUIRED_FIELDS - variables
     if missing and not _LEGACY_FIELDS.issubset(variables):
         raise HTTPException(422, f"Template is missing required fields: {', '.join(sorted(missing))}")

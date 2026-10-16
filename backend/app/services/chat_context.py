@@ -11,6 +11,7 @@ from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.tax_assignment import TaxAssignment
 from app.services.chunker import record
 from app.services.manual_tax import assignment_dict, totals
+from app.services.workflow import FINANCE_REVIEW, REFINEMENT, stage_of
 
 PAGE_SIZE = 40
 AUDIT_TYPES = {
@@ -51,10 +52,15 @@ def safe_event(event):
         from app.models.request import RequestStatus
 
         statuses = {s.value for s in RequestStatus}
-        for key in ("from", "to", "old_status", "new_status"):
+        for key in ("from", "to", "old_status", "new_status", "from_status", "to_status"):
             value = (event.payload or {}).get(key)
             if isinstance(value, str) and value in statuses:
                 result[key] = value
+        stage = (event.payload or {}).get("workflow_stage")
+        if stage in (REFINEMENT, FINANCE_REVIEW):
+            result["workflow_stage"] = stage
+        if (event.payload or {}).get("action") == "CLIENT_SUBMITTED_REFINEMENT":
+            result["milestone"] = "Client submitted refinement for Finance review"
     return result
 
 
@@ -97,7 +103,14 @@ async def request_context(req, db, *, include_history, item_page=0):
         ),
         "flags": req.flags,
         "validation_issues": req.validation_issues,
-        "next_required_action": NEXT_ACTION[req.status.value],
+        "workflow_stage": stage_of(req),
+        "next_required_action": (
+            "Client PIC must refine and submit; validation flags remain visible and may be submitted for demo review."
+            if stage_of(req) == REFINEMENT
+            else "An authorized independent reviewer in Finance must review and approve or reject; unresolved validation flags do not block demo approval."
+            if stage_of(req) == FINANCE_REVIEW
+            else NEXT_ACTION[req.status.value]
+        ),
         "invoice_header": record(
             header,
             "vendor_name voucher_name invoice_number invoice_date currency subtotal "

@@ -1,5 +1,6 @@
 """Client-only refinement, server tax calculations and submission-gated approval."""
 
+from tests.pdf_fixtures import pdf_bytes
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -44,7 +45,8 @@ async def test_refine_tax_submit_and_approve_workflow(db_session):
         assert detail["totals"]["voucher_total"] == "30.6000"
         response = await client.post(f"/requests/{rid}/submit-review")
         assert response.status_code == 200, response.text
-        assert response.json()["status"] == "READY_FOR_REVIEW"
+        assert response.json()["status"] == "EXCEPTION"
+        assert response.json()["workflow_stage"] == "FINANCE_REVIEW"
         assert (
             await client.put(
                 f"/requests/{rid}/fields", json={"field_path": "header.vendor_name", "new_value": "After submission"}
@@ -54,7 +56,7 @@ async def test_refine_tax_submit_and_approve_workflow(db_session):
     async with await client_for(db_session, data["reviewer"]) as client:
         assert len((await client.get("/requests")).json()) == 1
         renderer = MagicMock()
-        renderer.HTML.return_value.write_pdf.return_value = b"%PDF-tax"
+        renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
         with (
             patch("app.routes.voucher.weasyprint", renderer),
             patch("app.routes.voucher.file_store.upload", AsyncMock()),
@@ -64,8 +66,8 @@ async def test_refine_tax_submit_and_approve_workflow(db_session):
         html = renderer.HTML.call_args.kwargs["string"]
         assert "PPh 23 2% (biaya pajak)" in html
         assert "Rp 99" in html  # Nominal is the extracted document total.
-        assert 'class="amount">30,60</td>' in html  # Calculated TOTAL includes assigned tax.
-        assert "Rp 99" in html.split('<table class="header">')[1].split("</table>")[0]
+        assert "Rp 30,60" in html  # Calculated TOTAL includes assigned tax.
+        assert "Nominal faktur (ekstraksi)" in html
     assert data["request"].status == RequestStatus.AMIGA_REVIEWED
     assert (await db_session.execute(select(FieldRevision))).scalars().all()
 

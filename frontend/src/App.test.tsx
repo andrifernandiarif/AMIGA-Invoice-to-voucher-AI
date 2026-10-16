@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+vi.mock("./components/PdfEvidence", () => ({ default: () => <div aria-label="Original invoice">PDF preview</div> }));
 const user = {
   user_id: "u",
   username: "finance",
@@ -31,7 +32,7 @@ describe("Workspace", () => {
       screen.getByLabelText("Password"),
       "Finance-Password-2026",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await screen.findByRole("heading", { name: "Finance workspace." });
     expect(sessionStorage.getItem("amiga_access_token")).toBe("test-token");
     const call = vi
@@ -86,7 +87,8 @@ it("lets a reviewer accept a draft without flag gates and download evidence sepa
   const draft = {
     request_id: requestId,
     client_id: "c",
-    status: "READY_FOR_REVIEW",
+    status: "EXCEPTION",
+    workflow_stage: "FINANCE_REVIEW",
     flags: ["MISSING_EVIDENCE"],
     rejection_reason: null,
     evidence_files: [
@@ -159,13 +161,14 @@ it("lets a reviewer accept a draft without flag gates and download evidence sepa
 
 it("lets Client PIC refine a draft and locks editing after submitting for finance review", async () => {
   const rid = "12345678-1234-1234-1234-123456789abc";
-  window.history.replaceState({}, "", `/requests/${rid}`);
+  window.history.replaceState({}, "", "/");
   sessionStorage.setItem("amiga_access_token", "token");
   const detail = {
     request_id: rid,
     client_id: "c",
-    status: "READY_FOR_REFINEMENT",
-    flags: [],
+    status: "EXCEPTION",
+    workflow_stage: "REFINEMENT",
+    flags: ["MISSING_EVIDENCE"],
     rejection_reason: null,
     evidence_files: [],
     tax_assignments: {},
@@ -201,17 +204,21 @@ it("lets Client PIC refine a draft and locks editing after submitting for financ
             "chat",
           ],
         });
+      if (url === "/api/requests") return response([{...detail, client_name: "Assigned Client", created_at:"2026-10-16T00:00:00Z", channel:"upload"}]);
       if (url === "/api/tax-options") return response([]);
       if (String(url).endsWith("/submit-review") && init?.method === "POST") {
-        detail.status = "READY_FOR_REVIEW";
+        detail.status = "EXCEPTION";
+        detail.workflow_stage = "FINANCE_REVIEW";
         return response({ status: detail.status });
       }
       return response(detail);
     }),
   );
   render(<App />);
+  await userEvent.click(await screen.findByRole("link", { name: `Open request ${rid}` }));
   await screen.findByRole("heading", { name: "Refine invoice." });
   expect(screen.getByLabelText("Vendor name")).toBeEnabled();
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === `/api/requests/${rid}`)).toHaveLength(1);
   expect(screen.getByLabelText("Tax assignment for item item")).toBeEnabled();
   await userEvent.click(
     screen.getByRole("button", { name: "Submit to Finance Reviewer" }),

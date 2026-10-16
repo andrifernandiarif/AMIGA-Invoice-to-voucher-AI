@@ -14,6 +14,7 @@
 # **Validates: Requirements 15.3, 16.1, 16.2, 16.3, 16.4**
 
 from __future__ import annotations
+from tests.pdf_fixtures import pdf_bytes
 
 import uuid
 from datetime import date, datetime, timezone
@@ -53,7 +54,7 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_FAKE_PDF = b"%PDF-1.4 test"
+_FAKE_PDF = pdf_bytes()
 
 # All statuses that are NOT AMIGA_REVIEWED
 _NON_AMIGA_REVIEWED_STATUSES = [

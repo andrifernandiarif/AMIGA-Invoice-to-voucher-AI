@@ -1,24 +1,18 @@
 # backend/app/routes/requests.py
 from __future__ import annotations
 
-import uuid
-import asyncio
-import logging
-from app.services.indexer import index_request
 import json
-from pydantic import ValidationError
-from app.schemas.voucher_metadata import VoucherMetadata
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import List
+import logging
+import uuid
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_role
 from app.models.audit import AuditEventType
-from app.models.draft import Draft
 from app.models.evidence_file import EvidenceFile
 from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
 from app.models.request import InvoiceRequest, RequestStatus
@@ -29,8 +23,11 @@ from app.schemas.request_schemas import (
     CreateRequestResponse,
     RejectRequestBody,
 )
+from app.schemas.voucher_metadata import VoucherMetadata
 from app.services.audit_service import log_event
+from app.services.indexing_worker import enqueue_indexing
 from app.services.request_service import RequestIdGenerationError, generate_request_id
+from app.services.workflow import FINANCE_REVIEW, stage_of
 from app.storage import StorageError, file_store
 
 logger = logging.getLogger(__name__)
@@ -46,15 +43,17 @@ ACCEPTED_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def generate_approved_voucher(request_id, db, user):
-    from app.routes.voucher import generate_voucher_pdf
+async def generate_approved_voucher(request_id, db, user, *, invoice_data=None):
+    from app.routes.voucher import _generate_voucher_pdf
 
-    return await generate_voucher_pdf(request_id=request_id, db=db, current_user=user)
+    return await _generate_voucher_pdf(
+        request_id=request_id, db=db, current_user=user, commit=False, invoice_data=invoice_data
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CreateRequestResponse)
 async def upload_invoice(
-    files: List[UploadFile],
+    files: list[UploadFile],
     client_id: uuid.UUID = Form(..., description="Use GET /clients to find your client_id"),
     request_date: date = Form(..., description="Invoice date, e.g. 2026-10-14"),
     voucher_purpose: str = Form(..., max_length=1000),
@@ -95,6 +94,7 @@ async def upload_invoice(
         raise HTTPException(409, "Complete your full name and professional role in Account before uploading.")
 
     from io import BytesIO
+
     from pypdf import PdfReader
 
     page_count = 0
@@ -164,7 +164,7 @@ async def upload_invoice(
                 content_type=evidence["content_type"],
                 file_size_bytes=evidence["file_size_bytes"],
                 upload_order=evidence["upload_order"],
-                uploaded_at=datetime.now(timezone.utc),
+                uploaded_at=datetime.now(UTC),
             )
         )
     await db.flush()
@@ -176,7 +176,7 @@ async def upload_invoice(
             "request_id": str(request_id),
             "client_id": str(client_id),
             "uploader_id": str(current_user.user_id),
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": datetime.now(UTC).isoformat(),
             "evidence_files": evidence_meta,
             "voucher_purpose": req.voucher_purpose,
             "approvers": req.approvers,
@@ -185,7 +185,7 @@ async def upload_invoice(
         actor_id=current_user.user_id,
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     extraction_job = ExtractionJob(
         job_id=uuid.uuid4(),
         request_id=request_id,
@@ -251,37 +251,37 @@ async def approve_request(
     if req.uploader_id == current_user.user_id and current_user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(403, "Self-approval is not permitted.")
 
-    if req.status != RequestStatus.READY_FOR_REVIEW:
+    if stage_of(req) != FINANCE_REVIEW:
         raise HTTPException(409, "The draft must be submitted by Client PIC before finance approval.")
 
-    if req.refinement_submitted_at is not None:
-        from app.models.invoice_fields import HeaderFields
-        from app.services.manual_tax import refresh_assignments, totals
+    from app.services.invoice_data import load_invoice_data
+    from app.services.manual_tax import refresh_assignments
 
-        draft = await db.scalar(select(Draft).where(Draft.request_id == request_id))
-        if not draft:
-            raise HTTPException(409, "No submitted draft is available.")
-        try:
-            items, assignments = await refresh_assignments(db, draft.draft_id)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc))
-        header = await db.scalar(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
-        summary = totals(req, header, items, assignments)
-        if summary["voucher_total"] is None or Decimal(summary["voucher_total"]) < 0:
-            raise HTTPException(422, "Complete item totals and tax amounts before accepting the voucher.")
+    invoice_data = await load_invoice_data(request_id, db)
+    if (
+        invoice_data.draft is None
+        or invoice_data.header is None
+        or not any(item.line_total is not None for item in invoice_data.items)
+    ):
+        raise HTTPException(409, "Extraction has not produced a usable draft. Retry extraction first.")
+    try:
+        await refresh_assignments(db, invoice_data.draft.draft_id, data=invoice_data)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
 
     from app.services.advisory_validation import validate_request
 
-    await validate_request(db, req, current_user.user_id)
+    await validate_request(db, req, current_user.user_id, data=invoice_data)
     # ── Approve: transition status and write audit event ──────────────────────
     await request_repository.update_status(db, request_id, RequestStatus.AMIGA_REVIEWED)
+    req.workflow_stage = None
 
     await log_event(
         db,
         AuditEventType.APPROVED,
         payload={
             "approver_id": str(current_user.user_id),
-            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "approved_at": datetime.now(UTC).isoformat(),
             "outstanding_issues": req.validation_issues or [],
         },
         request_id=request_id,
@@ -291,20 +291,12 @@ async def approve_request(
     # Generate with the active template in the same transaction as approval.
     # A rendering/storage failure rolls back approval so the reviewer can retry.
     try:
-        voucher = await generate_approved_voucher(request_id, db, current_user)
+        voucher = await generate_approved_voucher(request_id, db, current_user, invoice_data=invoice_data)
+        await enqueue_indexing(db, request_id)
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-    # Approval and PDF are already committed. Indexing owns a separate transaction
-    # so either a Bedrock failure or a pgvector error cannot undo approval.
-    try:
-        async with asyncio.timeout(45):
-            await index_request(request_id, db)
-            await db.commit()
-    except Exception as exc:
-        await db.rollback()
-        logger.warning("Request %s indexing failed after approval (%s)", request_id, type(exc).__name__)
     return {"status": "approved", "request_id": str(request_id), "voucher": voucher}
 
 
@@ -347,7 +339,7 @@ async def reject_request(
         raise HTTPException(403, "Self-rejection is not permitted.")
 
     # ── Step 5: Status check — must be READY_FOR_REVIEW or EXCEPTION ──────────
-    if req.status != RequestStatus.READY_FOR_REVIEW:
+    if stage_of(req) != FINANCE_REVIEW:
         raise HTTPException(
             409,
             "The draft must be submitted by Client PIC before finance rejection.",
@@ -355,6 +347,7 @@ async def reject_request(
 
     # ── Reject: persist reason, transition status, write audit event ──────────
     await request_repository.update_status_with_reason(db, request_id, RequestStatus.REJECTED, body.rejection_reason)
+    req.workflow_stage = None
 
     await log_event(
         db,
@@ -362,7 +355,7 @@ async def reject_request(
         payload={
             "reason": body.rejection_reason,
             "reviewer_id": str(current_user.user_id),
-            "rejected_at": datetime.now(timezone.utc).isoformat(),
+            "rejected_at": datetime.now(UTC).isoformat(),
         },
         request_id=request_id,
         actor_id=current_user.user_id,

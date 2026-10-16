@@ -1,5 +1,6 @@
 """The simplified upload → manual review → automatic voucher → downloads workflow."""
 
+from tests.pdf_fixtures import pdf_bytes
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -63,7 +64,7 @@ async def client_for(db, user):
 
 
 async def seed(db):
-    data = await _seed_base(db, request_flags=["MISSING_EVIDENCE", "POSSIBLE_DUPLICATE", "CALC_DISCREPANCY"])
+    data = await _seed_base(db, with_draft=False, request_flags=["MISSING_EVIDENCE", "POSSIBLE_DUPLICATE", "CALC_DISCREPANCY"])
     now = datetime.now(timezone.utc)
     data["uploader"].full_name = "Rina Setiawan"
     data["uploader"].job_title = "Admin"
@@ -126,11 +127,11 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
     data = await seed(db_session)
     request_id = data["request"].request_id
     renderer = MagicMock()
-    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-voucher"
+    renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
     with (
         patch("app.routes.voucher.weasyprint", renderer),
         patch("app.routes.voucher.file_store.upload", AsyncMock()) as upload,
-        patch("app.routes.voucher.file_store.download", AsyncMock(return_value=b"%PDF-evidence-or-voucher")),
+        patch("app.routes.voucher.file_store.download", AsyncMock(return_value=pdf_bytes())),
     ):
         async with await client_for(db_session, data["reviewer"]) as client:
             response = await client.post(f"/requests/{request_id}/approve")
@@ -159,7 +160,7 @@ async def test_accept_generates_voucher_and_downloads_are_separate(db_session):
             assert data["request"].status == RequestStatus.AMIGA_REVIEWED
             response = await client.get(f"/requests/{request_id}/voucher-pdf")
             assert response.status_code == 200
-            assert response.content == b"%PDF-evidence-or-voucher"
+            assert response.content == pdf_bytes()
             assert data["request"].status == RequestStatus.SENT_TO_CLIENT
             assert (await client.get(f"/requests/{request_id}/voucher-preview")).status_code == 200
     events = (await db_session.execute(select(AuditEvent))).scalars().all()
@@ -214,7 +215,7 @@ async def test_template_versions_accept_real_jinja_and_keep_old_versions(db_sess
         assert response.status_code == 201, response.text
         response = await client.post(
             "/admin/templates",
-            data={"version": "custom-v2", "template_content": template.replace("VOUCHER PENGELUARAN", "MY VOUCHER")},
+            data={"version": "custom-v2", "template_content": template.replace("Voucher Pengeluaran", "MY VOUCHER")},
         )
         assert response.status_code == 201
         rows = (await client.get("/admin/templates")).json()["templates"]
@@ -225,7 +226,7 @@ async def test_template_versions_accept_real_jinja_and_keep_old_versions(db_sess
         assert response.status_code == 422
 
 
-async def test_extraction_preserves_advisory_issues_without_exception(db_session):
+async def test_extraction_preserves_flags_and_refinement_ownership(db_session):
     from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
     from app.schemas.extraction import ExtractionResult, HeaderFieldsSchema, LineItemSchema
     from app.services.extraction_worker import _process_job
@@ -263,7 +264,7 @@ async def test_extraction_preserves_advisory_issues_without_exception(db_session
     with (
         patch("app.services.extraction_worker.AsyncSessionLocal", return_value=SessionContext()),
         patch("app.services.extraction_worker.get_extraction_provider", return_value=provider),
-        patch("app.services.extraction_worker.file_store.download", AsyncMock(return_value=b"%PDF-evidence")),
+        patch("app.services.extraction_worker.file_store.download", AsyncMock(return_value=pdf_bytes())),
         patch(
             "app.validation.engine.run_validation", AsyncMock(side_effect=AssertionError("Flags must not run"))
         ) as validate,
@@ -274,7 +275,8 @@ async def test_extraction_preserves_advisory_issues_without_exception(db_session
         failure.assert_not_awaited()
     await db_session.refresh(req)
     await db_session.refresh(job)
-    assert req.status == RequestStatus.READY_FOR_REFINEMENT
+    assert req.status == RequestStatus.EXCEPTION
+    assert req.workflow_stage == "REFINEMENT"
     assert "MISSING_EVIDENCE" in req.flags
     assert job.status == ExtractionJobStatus.DONE
 
@@ -320,10 +322,10 @@ async def test_client_upload_persists_and_extracts_all_evidence_files(db_session
         assert detail.json()["approvers"] == [{"full_name": "Budi Santoso", "job_title": "BOD"}]
         assert detail.json()["voucher_number"] is None
     with patch(
-        "app.services.extraction_worker.file_store.download", AsyncMock(side_effect=[b"%PDF-invoice", b"PNG-receipt"])
+        "app.services.extraction_worker.file_store.download", AsyncMock(side_effect=[pdf_bytes(), b"PNG-receipt"])
     ):
         assert await _fetch_evidence_files(db_session, request_id) == [
-            (b"%PDF-invoice", "application/pdf"),
+            (pdf_bytes(), "application/pdf"),
             (b"PNG-receipt", "image/png"),
         ]
     job = await db_session.scalar(select(ExtractionJob).where(ExtractionJob.request_id == request_id))
@@ -336,7 +338,7 @@ async def test_legacy_exception_requires_client_submission_before_acceptance(db_
     req.status = RequestStatus.EXCEPTION
     await db_session.commit()
     renderer = MagicMock()
-    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-voucher"
+    renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
     async with await client_for(db_session, data["reviewer"]) as client:
         with (
             patch("app.routes.voucher.weasyprint", renderer),
@@ -368,7 +370,7 @@ async def test_regeneration_keeps_original_pdf_history(db_session):
     data = await seed(db_session)
     req = data["request"]
     renderer = MagicMock()
-    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-new-layout"
+    renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
     async with await client_for(db_session, data["reviewer"]) as client:
         with (
             patch("app.routes.voucher.weasyprint", renderer),
@@ -392,7 +394,7 @@ def valid_pdf():
     from pypdf import PdfWriter
 
     writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
+    writer.add_blank_page(width=595, height=842)
     out = BytesIO()
     writer.write(out)
     return out.getvalue()

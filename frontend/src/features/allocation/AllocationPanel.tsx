@@ -21,10 +21,14 @@ export function AllocationPanel({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (data.available_reviewers) {
+      setReviewers(data.available_reviewers);
+      return;
+    }
     api<Reviewer[]>(`/requests/${requestId}/reviewers`)
       .then(setReviewers)
       .catch((error) => setMessage(errorMessage(error)));
-  }, [requestId]);
+  }, [requestId, data.available_reviewers]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

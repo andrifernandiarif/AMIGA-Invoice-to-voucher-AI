@@ -13,6 +13,7 @@ Requirements tested:
 """
 
 from __future__ import annotations
+from tests.pdf_fixtures import pdf_bytes
 
 import uuid
 from datetime import date, datetime, timezone
@@ -70,8 +71,8 @@ _TEST_TEMPLATE_CONTENT = """\
 
 # The disclaimer string configured in settings
 _DISCLAIMER = (
-    "This voucher is prepared for client review purposes only. "
-    "Payment authorization remains with the client."
+    "Voucher ini disiapkan hanya untuk keperluan peninjauan oleh klien. "
+    "Otorisasi pembayaran tetap menjadi tanggung jawab klien."
 )
 
 
@@ -303,7 +304,7 @@ class TestStatusGuard:
         with patch("app.routes.voucher.file_store") as mock_store:
             mock_store.upload = AsyncMock()
             with patch("app.routes.voucher.weasyprint") as mock_wp:
-                mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-fake"
+                mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
                 with TestClient(app) as client:
                     resp = client.post(f"/requests/{req.request_id}/voucher-pdf")
 
@@ -355,7 +356,7 @@ class TestStatusGuard:
 
         # Mock both weasyprint and S3 so the rest of the pipeline succeeds
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -422,7 +423,7 @@ class TestGenerationFailure:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock(
                     side_effect=StorageError("S3 unavailable")
@@ -481,7 +482,7 @@ class TestGenerationFailure:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock(side_effect=StorageError("S3 down"))
                 with TestClient(app) as client:
@@ -601,7 +602,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -628,7 +629,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -655,7 +656,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -684,7 +685,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -715,7 +716,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -746,7 +747,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -781,7 +782,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -815,7 +816,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -850,7 +851,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -889,7 +890,7 @@ class TestGenerationSuccess:
         app = _build_app(db_session, user)
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
-            mock_wp.HTML.return_value.write_pdf.return_value = b"%PDF-1.4 fake"
+            mock_wp.HTML.return_value.write_pdf.return_value = pdf_bytes()
             with patch("app.routes.voucher.file_store") as mock_store:
                 mock_store.upload = AsyncMock()
                 with TestClient(app) as client:
@@ -952,7 +953,7 @@ class TestDisclaimerPresence:
                 self._html = string
 
             def write_pdf(self):
-                return b"%PDF-1.4 disclaimer-test"
+                return pdf_bytes()
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
             mock_wp.HTML.side_effect = CapturingHTML
@@ -965,7 +966,7 @@ class TestDisclaimerPresence:
         assert captured_html, "WeasyPrint.HTML was never called — no HTML was rendered"
 
         rendered = captured_html[0]
-        assert settings.AUTHORIZATION_DISCLAIMER in rendered, (
+        assert _DISCLAIMER in rendered, (
             f"The Authorization Disclaimer must appear in the rendered HTML.\n"
             f"Expected: {settings.AUTHORIZATION_DISCLAIMER!r}\n"
             f"Rendered HTML snippet: {rendered[:500]!r}"
@@ -993,7 +994,7 @@ class TestDisclaimerPresence:
                 captured_html.append(string)
 
             def write_pdf(self):
-                return b"%PDF-1.4 disclaimer-check"
+                return pdf_bytes()
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
             mock_wp.HTML.side_effect = CapturingHTML
@@ -1006,7 +1007,7 @@ class TestDisclaimerPresence:
         rendered = captured_html[0]
 
         # The full disclaimer text must appear verbatim in the rendered HTML
-        assert settings.AUTHORIZATION_DISCLAIMER in rendered
+        assert _DISCLAIMER in rendered
 
     @pytest.mark.asyncio
     async def test_disclaimer_rendered_from_template_placeholder(
@@ -1028,7 +1029,7 @@ class TestDisclaimerPresence:
                 captured_html.append(string)
 
             def write_pdf(self):
-                return b"%PDF-1.4 placeholder-check"
+                return pdf_bytes()
 
         with patch("app.routes.voucher.weasyprint") as mock_wp:
             mock_wp.HTML.side_effect = CapturingHTML
@@ -1045,6 +1046,6 @@ class TestDisclaimerPresence:
             "Jinja2 placeholder was not rendered — disclaimer text was not substituted"
         )
         # The disclaimer content must be present
-        assert "Payment authorization remains with the client" in rendered, (
+        assert _DISCLAIMER in rendered, (
             "Rendered HTML must contain the disclaimer text content"
         )

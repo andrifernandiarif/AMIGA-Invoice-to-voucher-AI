@@ -1,6 +1,7 @@
 """RAG boundaries: payloads, chunk coverage, authorization, approval isolation."""
 # ruff: noqa: F811 - imported shared pytest fixture
 
+from tests.pdf_fixtures import pdf_bytes
 import io
 import json
 import uuid
@@ -177,21 +178,24 @@ async def test_chat_jwt_required_and_response_shape(db_session):
 
 
 @pytest.mark.parametrize("fail", [False, True])
-async def test_approval_indexes_after_commit_and_failure_keeps_approval(db_session, fail):
+async def test_approval_queues_indexing_without_calling_embedding_service(db_session, fail):
     data = await seed(db_session)
     rid = data["request"].request_id
     renderer = MagicMock()
-    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-test"
+    renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
     indexing = AsyncMock(side_effect=RuntimeError("Bedrock unavailable") if fail else None, return_value=4)
     async with await client_for(db_session, data["reviewer"]) as client:
         with (
             patch("app.routes.voucher.weasyprint", renderer),
             patch("app.routes.voucher.file_store.upload", AsyncMock()),
-            patch("app.routes.requests.index_request", indexing),
+            patch("app.services.embedding_service.embed_chunks", indexing),
         ):
             response = await client.post(f"/requests/{rid}/approve")
     assert response.status_code == 200, response.text
-    indexing.assert_awaited_once_with(rid, db_session)
+    indexing.assert_not_awaited()
+    from app.models.indexing_job import IndexingJob
+    job = await db_session.get(IndexingJob, rid)
+    assert job.status == "PENDING" and job.attempts == 0
     req = await db_session.get(InvoiceRequest, rid)
     assert req.status == RequestStatus.AMIGA_REVIEWED
     assert req.voucher_number == "ACME-1"

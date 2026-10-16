@@ -100,7 +100,8 @@ async def test_first_upload_retries_transient_failure_automatically_with_origina
         detail = (await client.get(f"/requests/{rid}")).json()
         await db_session.refresh(job)
         assert job.status == ExtractionJobStatus.DONE and job.error_detail is None
-        assert detail["status"] == "READY_FOR_REFINEMENT"
+        assert detail["status"] == "EXCEPTION"
+        assert detail["workflow_stage"] == "REFINEMENT"
         assert detail["extraction"]["message"] is None
         assert len(detail["draft"]["source_invoices"]) == 2
         assert len(detail["draft"]["line_items"]) == 7

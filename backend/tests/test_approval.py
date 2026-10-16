@@ -54,7 +54,7 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 
 @pytest.fixture(autouse=True)
 def voucher_generation_stub():
-    with patch("app.routes.voucher.generate_voucher_pdf", AsyncMock(return_value={"voucher_pdf_id": "test-voucher"})):
+    with patch("app.routes.requests.generate_approved_voucher", AsyncMock(return_value={"voucher_pdf_id": "test-voucher"})):
         yield
 
 
@@ -91,6 +91,7 @@ async def _seed_base(
     *,
     request_status: RequestStatus = RequestStatus.READY_FOR_REVIEW,
     request_flags: list[str] | None = None,
+    with_draft: bool = True,
 ) -> dict:
     """
     Seed the minimum data needed for approval tests:
@@ -154,6 +155,17 @@ async def _seed_base(
         updated_at=now,
     )
     db.add(request)
+    await db.flush()
+    if with_draft:
+        from app.models.draft import Draft, ExtractionStatus
+        from app.models.invoice_fields import HeaderFields, LineItem, LineExtractionStatus
+        draft = Draft(draft_id=uuid.uuid4(), request_id=request.request_id, ai_label_visible=True,
+                      extraction_status=ExtractionStatus.COMPLETE, extracted_at=now)
+        db.add(draft)
+        await db.flush()
+        db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", total_amount=100))
+        db.add(LineItem(draft_id=draft.draft_id, sequence_number=1, description="Service", quantity=1,
+                        unit="service", unit_price=100, line_total=100, extraction_status=LineExtractionStatus.COMPLETE))
 
     await db.commit()
 

@@ -6,7 +6,7 @@ A React frontend connected to the FastAPI extraction and review backend. Include
 
 Password login, delegated organization management, advisory validation, complete audit history, reviewer/deadline allocation, and performance views are implemented. See [login instructions, test roles, setup and acceptance walkthroughs](docs/organization-access.md). Local generated test credentials are in `backend/.env.demo-credentials`, excluded from Git. Temporary-password users must change their password before accessing the workspace.
 
-Super Admin has unrestricted access, including self-approval. System Admin manages clients/templates but cannot approve. User Admin manages operational accounts/roles. Service Lead manages assignments within its clients and reviewer/deadline allocation. Validation issues never block Finance approval: unresolved issues are snapshotted in the approval audit event.
+Super Admin has unrestricted access, including self-approval. System Admin manages operational accounts/roles, company access, client settings and templates, without Finance correction or approval authority. Former User Admin accounts are migrated to System Admin. Service Lead manages reviewer/deadline allocation within assigned clients. Validation issues never block Finance approval: unresolved issues are snapshotted in the approval audit event.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ npm run dev
 
 Open http://localhost:5173. Vite proxies `/api` to the backend on port 8000. Sign in with an active username and password. Existing accounts without a password require a temporary-password reset by an authorized administrator; see the organization setup guide. For a built frontend, configure your reverse proxy to forward `/api/*` to the backend with the `/api` prefix stripped and serve `index.html` for frontend routes.
 
-Roles control the workflow: Client PIC and Intake Support upload evidence; Client PIC refines extracted fields, assigns item taxes and submits for review; Finance Reviewer reviews, edits, approves or rejects; System Admin can correct drafts; Finance Reviewer, Service Lead and System Admin can read revisions. Acceptance automatically generates the voucher. Client PIC and Finance Reviewer can download the voucher and each evidence file separately. The server enforces client assignments and prevents self-approval except for Super Admin.
+Roles control the workflow: Client PIC and Intake Support upload evidence; Client PIC refines extracted fields, assigns item taxes and submits for review; Finance Reviewer reviews, edits, approves or rejects; System Admin manages configuration and account access; Finance Reviewer, Service Lead and System Admin can read revisions. Acceptance automatically generates the voucher. Client PIC and Finance Reviewer can download the voucher and each evidence file separately. The server enforces client assignments and prevents self-approval except for Super Admin.
 
 ## Workspace APIs
 
@@ -47,7 +47,7 @@ The existing extraction, approval, rejection and voucher endpoints are supplemen
 - `GET /requests/{request_id}/revisions`: ordered correction history for authorized roles.
 - `POST /telemetry/page-load`: authenticated, bounded page-load timing record.
 
-Client listing and uploads require active client assignments. Extraction creates a READY_FOR_REFINEMENT draft for Client PIC. Client PIC edits extracted fields and applies per-item taxes, then explicitly submits to Finance Reviewer. Submitted drafts become READY_FOR_REVIEW and client edits are locked. Finance Reviewers compare the submitted values and tax rows against evidence and accept or reject. The finance queue excludes unsubmitted drafts. Automated discrepancy, same-client duplicate, and missing-field checks produce advisory flags. Flags do not block acceptance and remain available in request history. Technical extraction failures still display a processing error.
+Client listing and uploads require active client assignments. Extraction creates a draft with `workflow_stage=REFINEMENT` for Client PIC. Validation flags set `EXCEPTION`; unflagged drafts use `READY_FOR_REFINEMENT`. Client PIC edits extracted fields and applies per-item taxes, then explicitly submits to Finance Reviewer. Submission changes the stage to `FINANCE_REVIEW`; flagged drafts remain `EXCEPTION`, unflagged drafts become `READY_FOR_REVIEW`, and Client PIC edits are locked. Finance can correct, approve or reject submitted exceptions. Finance Reviewers compare the submitted values and tax rows against evidence and accept or reject. The finance queue excludes unsubmitted drafts. Automated discrepancy, same-client duplicate, and missing-field checks produce advisory flags. Flags do not block acceptance and remain available in request history. Technical extraction failures without a usable draft remain retryable and cannot generate an empty voucher. Duplicate detection compares each normalized vendor/invoice identity within the client, including overlapping single/combined requests; warnings link to existing requests and source invoices. Legacy identity coverage is explicitly described as incomplete.
 
 Acceptance generates and stores a PDF using the active template in the approval transaction. Rendering or S3 failures leave the request awaiting review. Downloads fetch the already generated PDF; evidence is downloaded independently via `GET /evidence/{file_key}?download=true`. Only a Client PIC voucher download records delivery to the client.
 
@@ -55,7 +55,7 @@ System Admins can use the **Voucher templates** screen to import/edit HTML and a
 
 ## Voucher layout
 
-The active Indonesian voucher contains Nomor, Nama, Peruntukan, Tanggal/Periode, and Nominal; an item table with NO, TANGGAL, KETERANGAN, JUMLAH, HARGA, and TOTAL; and Diajukan Oleh / Disetujui Oleh signature blocks with account/client names and professional roles. The submitter’s optional uploaded signature is included; external approver signature spaces remain empty. The PDF contains a client payment-authorization notice and no AI or generated-by footer.
+The versioned `v5.0-corporate` Indonesian default uses restrained teal styling, dynamic client/vendor/invoice/payment sections, an emphasized calculated voucher total and distinct extracted invoice nominal. Empty optional fields/sections are hidden; essential missing information is stated explicitly. Submitter and external client signature blocks preserve their original meaning. The submitter’s optional uploaded signature is included; external approver signature spaces remain empty. A renderer-owned notice appears on every PDF page regardless of custom template conditions; the default notice is Indonesian, and configured notice text is respected. Custom templates and historical PDFs are preserved.
 
 Client PIC can correct extracted name/item fields and upload metadata during refinement; Finance Reviewer can correct submitted extracted values during review. Voucher number and creation datetime are generated by the backend. Purpose and external approvers are captured at upload. Nominal shows the extracted/reviewed document total; the bottom TOTAL uses item amounts plus assigned tax rows, fees and rounding, minus explicit withholding. Extracted header tax is not added a second time. Amounts use Indonesian separators.
 
@@ -106,7 +106,7 @@ Run migration `0009` with `alembic upgrade head`. It adds company codes and coun
 - **Diajukan Oleh:** the uploader's account full name, professional role and optional PNG/JPEG signature. These are snapshotted when Client PIC submits for review and preserved for regeneration. A missing signature leaves an empty signature space.
 - **Disetujui Oleh:** one or more external client approvers supplied at upload, each with full name and professional role (for example BOD or Manager). Each gets an empty signature space. Finance review does not fill or sign these external approval blocks.
 
-Complete **Your account** before uploading if an existing account has no full name or professional role. Super Admin and User Admin can use **People & assignments** to create accounts with these fields. Super Admin or a scoped Service Lead grants client assignments. Users can add optional signatures in **Your account**. The professional role is independent of the system access role. Missing historical personal/approver details are never invented. Existing drafts can complete upload details during refinement before submitting.
+Complete **Your account** before uploading if an existing account has no full name or professional role. Super Admin and System Admin can use **People & assignments** to create accounts with these fields. Super Admin or System Admin grants client assignments. Users can add optional signatures in **Your account**. The professional role is independent of the system access role. Missing historical personal/approver details are never invented. Existing drafts can complete upload details during refinement before submitting.
 
 API additions:
 
@@ -129,7 +129,7 @@ The shared async entry point is `app.services.rag_service.ask(question, user, db
 
 Each indexed request has four bounded chunks: `HEADER`, `LINE_ITEMS`, `PAYMENT`, and `TAX_SUMMARY`. All contain request/client IDs, vendor, invoice number and status metadata. Signature images are excluded. Large records are explicitly marked as truncated. Embeddings are written atomically; repeated indexing updates the same rows. Answers reload the selected requests from live database records rather than using indexed text, so invoice revisions and download/delivery status changes are reflected immediately. Retrieval is semantic, not an exhaustive report: the generator must not claim an invoice is the latest or produce a global count without sufficient context.
 
-Finance approval calls indexing after the PDF/approval transaction commits. Indexing errors or the 45-second indexing timeout are logged without rolling back approval. The backfill script retries approved/delivered requests that have no embeddings, with 100 ms between requests:
+Finance approval saves an `indexing_jobs` outbox row atomically with the approval and PDF. Embedding runs in a background worker, outside the response and without holding a database connection. Jobs coalesce by request, retry with backoff up to five attempts, and recover expired five-minute RUNNING leases after restart. Failures never undo a saved approval. The API starts the worker automatically; an independent process can use `python -m scripts.run_indexing_worker`. Migration `0014` queues approved requests with missing/partial indexes. The backfill script retries approved/delivered requests that have no embeddings, with 100 ms between requests:
 
 ```sh
 cd backend
@@ -146,7 +146,7 @@ Retrieval resolves explicit identifiers within the authorized scope, uses vector
 
 `POST /chat` keeps `{ "message": "…", "request_id": "optional UUID" }`; optional `item_page` defaults to 0. Responses retain `answer` and `chunks_used`, and may include `sources` (request/company IDs and labels), `coverage`, and `has_more_items`. To continue line items, resend the question with a source request ID and the next `item_page`.
 
-The web API accepts operational roles, System Admin and Super Admin with a valid unrestricted JWT; User Admin has no invoice-chat permission:
+The web API accepts operational roles, System Admin and Super Admin with a valid unrestricted JWT. User Admin has been retired:
 
 ```sh
 curl http://localhost:8000/chat \
@@ -195,3 +195,5 @@ After updating, restart the backend using the interpreter in `backend/.venv`. If
 
 
 First uploads retry failed extraction attempts automatically, using the same saved evidence, up to three attempts. Request detail includes safe `extraction` progress (`status`, `attempt`, `max_attempts`, `message`) so the workspace distinguishes automatic retry progress from a final failure. Local PDF text extraction is optional for Bedrock: when the worker cannot import `pypdf`, the original PDF document bytes are still sent to the model. `pypdf` remains a required installation dependency for upload page counting. A successful retry clears the previous worker error and preserves one draft.
+
+See [demo workflow rollout and measured performance](docs/demo-workflow-rollout.md) for migration details, verification and remaining timing breaches.

@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { HistoryTimeline, PasswordForm, AllocationPanel } from "./Operations";
+import { MemoryRouter } from "react-router-dom";
+import { HistoryTimeline, PasswordForm, AllocationPanel, ValidationWarnings } from "./Operations";
 import Organization from "./Organization";
 import { Detail } from "../api";
 const response = (data: unknown) =>
@@ -109,18 +110,19 @@ it("saves a reviewer and deadline together", async () => {
     due_date: "2026-10-16",
   });
 });
-it("shows only operational role choices to User Admin", async () => {
+it("shows only operational role choices to System Admin", async () => {
   vi.mocked(fetch).mockResolvedValue(response([]));
   render(
     <Organization
       user={{
         user_id: "admin",
         username: "user_admin",
-        role: "USER_ADMIN",
+        role: "SYSTEM_ADMIN",
         permissions: ["users"],
       }}
     />,
   );
+  await userEvent.click(await screen.findByRole("button", { name: "+ Account" }));
   expect(
     screen.getByRole("option", { name: "FINANCE_REVIEWER" }),
   ).toBeInTheDocument();
@@ -131,4 +133,12 @@ it("shows only operational role choices to User Admin", async () => {
     screen.queryByRole("option", { name: "SYSTEM_ADMIN" }),
   ).not.toBeInTheDocument();
   await waitFor(() => expect(fetch).toHaveBeenCalled());
+});
+
+it("links duplicate warnings to the matched request and identifies the source invoice", () => {
+  render(<MemoryRouter><ValidationWarnings issues={[{flag_type:"POSSIBLE_DUPLICATE",details:{matches:[{
+    request_id:"existing-request", matched_sources:[{vendor_name:"Vendor A",invoice_number:"INV-42"}],
+  }]}}]} /></MemoryRouter>);
+  expect(screen.getByRole("link", {name:"Request existing-request"})).toHaveAttribute("href","/requests/existing-request");
+  expect(screen.getByText("Vendor A · Invoice INV-42")).toBeInTheDocument();
 });

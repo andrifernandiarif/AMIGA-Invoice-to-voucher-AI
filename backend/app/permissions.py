@@ -3,14 +3,13 @@
 from fastapi import Depends, HTTPException
 
 OPERATIONAL_ROLES = {"CLIENT_PIC", "INTAKE_SUPPORT", "FINANCE_REVIEWER", "SERVICE_LEAD"}
-ADMIN_ROLES = {"SUPER_ADMIN", "SYSTEM_ADMIN", "USER_ADMIN"}
+ADMIN_ROLES = {"SUPER_ADMIN", "SYSTEM_ADMIN"}
 ROLE_PERMISSIONS = {
     "CLIENT_PIC": {"upload", "refine", "submit", "voucher", "history", "chat"},
     "INTAKE_SUPPORT": {"upload", "chat"},
     "FINANCE_REVIEWER": {"review", "approve", "voucher", "history", "chat"},
-    "SERVICE_LEAD": {"assignments", "allocate", "history", "metrics", "chat"},
-    "SYSTEM_ADMIN": {"clients", "templates", "review", "history", "metrics", "chat"},
-    "USER_ADMIN": {"users"},
+    "SERVICE_LEAD": {"allocate", "history", "metrics", "chat"},
+    "SYSTEM_ADMIN": {"clients", "templates", "users", "assignments", "history", "metrics", "chat"},
 }
 for _role in ("CLIENT_PIC", "INTAKE_SUPPORT", "FINANCE_REVIEWER", "SERVICE_LEAD", "SYSTEM_ADMIN"):
     ROLE_PERMISSIONS[_role].add("track")

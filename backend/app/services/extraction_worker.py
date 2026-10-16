@@ -230,14 +230,14 @@ async def _process_job(job: ExtractionJob) -> None:
                 if not existing_draft:
                     await _persist_extraction(db, job.request_id, result)
 
-                from app.services.advisory_validation import validate_request
+                await TelemetryService.record_document_timings(db, job.request_id, result.document_timings)
+                from app.services.workflow import finish_extraction
 
-                await validate_request(db, req)
-                await request_repository.update_status(db, job.request_id, RequestStatus.READY_FOR_REFINEMENT)
+                await finish_extraction(db, req)
                 await log_event(
                     db,
                     AuditEventType.STATUS_CHANGED,
-                    payload={"from": "PROCESSING", "to": "READY_FOR_REFINEMENT", "job_id": str(job.job_id)},
+                    payload={"from": "PROCESSING", "to": req.status.value, "job_id": str(job.job_id)},
                     request_id=job.request_id,
                     actor_id=None,
                 )
@@ -273,7 +273,7 @@ async def _process_job(job: ExtractionJob) -> None:
                     "ExtractionJob %s completed → request %s status=%s, duration=%dms",
                     job.job_id,
                     job.request_id,
-                    RequestStatus.READY_FOR_REFINEMENT.value,
+                    req.status.value,
                     record.duration_ms,
                 )
 

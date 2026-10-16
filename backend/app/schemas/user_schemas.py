@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.user import UserRole
 
@@ -12,18 +13,35 @@ class AssignmentIn(BaseModel):
     client_id: uuid.UUID
 
 
-class CreateUserRequest(BaseModel):
+class CurrentRoleRequest(BaseModel):
+    role: Literal[
+        UserRole.SUPER_ADMIN,
+        UserRole.SYSTEM_ADMIN,
+        UserRole.CLIENT_PIC,
+        UserRole.INTAKE_SUPPORT,
+        UserRole.FINANCE_REVIEWER,
+        UserRole.SERVICE_LEAD,
+    ]
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def current_role(cls, value):
+        if value == UserRole.USER_ADMIN:
+            raise ValueError("Use SYSTEM_ADMIN; USER_ADMIN has been retired.")
+        return value
+
+
+class CreateUserRequest(CurrentRoleRequest):
     username: str = Field(..., min_length=1, max_length=200)
     full_name: str = Field(min_length=1, max_length=300)
     job_title: str = Field(min_length=1, max_length=200)
     temporary_password: str = Field(min_length=12, max_length=128)
     signature_data: str | None = Field(default=None, max_length=3000000)
-    role: UserRole
     assignments: list[AssignmentIn] = Field(default_factory=list)
 
 
-class UpdateRoleRequest(BaseModel):
-    role: UserRole
+class UpdateRoleRequest(CurrentRoleRequest):
+    pass
 
 
 class AddAssignmentRequest(BaseModel):

@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import exists, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,6 @@ class DuplicateUsernameError(Exception):
 
 
 class UserRepository:
-
     async def find_by_username(self, db: AsyncSession, username: str) -> User | None:
         """Return the User with this username, or None."""
         result = await db.execute(select(User).where(User.username == username))
@@ -34,7 +33,7 @@ class UserRepository:
         """
         Insert a new User. Raises DuplicateUsernameError if username already taken.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user = User(
             user_id=uuid.uuid4(),
             username=username,
@@ -58,12 +57,8 @@ class UserRepository:
         role: UserRole,
     ) -> User:
         """Update the role of an existing user. Returns the updated User."""
-        now = datetime.now(timezone.utc)
-        await db.execute(
-            update(User)
-            .where(User.user_id == user_id)
-            .values(role=role, updated_at=now)
-        )
+        now = datetime.now(UTC)
+        await db.execute(update(User).where(User.user_id == user_id).values(role=role, updated_at=now))
         await db.flush()
         user = await self.find_by_id(db, user_id)
         if user is None:
@@ -100,7 +95,7 @@ class UserRepository:
             user_id=user_id,
             client_id=client_id,
             is_active=True,
-            assigned_at=datetime.now(timezone.utc),
+            assigned_at=datetime.now(UTC),
             revoked_at=None,
         )
         db.add(assignment)
@@ -120,7 +115,7 @@ class UserRepository:
                 ClientAssignment.user_id == user_id,
                 ClientAssignment.client_id == client_id,
             )
-            .values(is_active=False, revoked_at=datetime.now(timezone.utc))
+            .values(is_active=False, revoked_at=datetime.now(UTC))
         )
         await db.flush()
 
@@ -134,17 +129,22 @@ class UserRepository:
         Return True iff a ClientAssignment exists with is_active=True
         for this (user_id, client_id) pair. No caching — always hits the DB.
         """
-        user = await self.find_by_id(db, user_id)
-        if user and user.is_active and user.role.value == "SUPER_ADMIN":
-            return True
-        result = await db.execute(
-            select(ClientAssignment).where(
-                ClientAssignment.user_id == user_id,
-                ClientAssignment.client_id == client_id,
-                ClientAssignment.is_active == True,  # noqa: E712
+        assigned = exists().where(
+            ClientAssignment.user_id == user_id,
+            ClientAssignment.client_id == client_id,
+            ClientAssignment.is_active.is_(True),
+        )
+        return bool(
+            await db.scalar(
+                select(
+                    exists().where(
+                        User.user_id == user_id,
+                        User.is_active.is_(True),
+                        or_(User.role == UserRole.SUPER_ADMIN, assigned),
+                    )
+                )
             )
         )
-        return result.scalar_one_or_none() is not None
 
 
 user_repository = UserRepository()

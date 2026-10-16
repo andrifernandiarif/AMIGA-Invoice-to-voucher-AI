@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.database import create_database_engine
 from app.models.audit import AuditEvent, AuditEventType
 from app.models.draft import Draft, ExtractionStatus
-from app.models.invoice_fields import HeaderFields, LineExtractionStatus, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
 from app.providers import get_extraction_provider
 from app.schemas.extraction import ExtractionResult
@@ -78,126 +77,38 @@ async def _run_extraction(job: ExtractionJob) -> None:
         # ── Call extraction provider ───────────────────────────────────────────
         result: ExtractionResult = await provider.extract(evidence_files, request_id)
 
-        # ── Persist Draft ──────────────────────────────────────────────────────
-        if existing_draft:
-            draft = existing_draft
-            draft.extraction_status = ExtractionStatus.COMPLETE
-            draft.extracted_at = datetime.now(UTC)
+        from app.services.extraction_worker import _persist_extraction
+        from app.services.telemetry_service import TelemetryService
+
+        await TelemetryService.record_document_timings(db, request_id, result.document_timings)
+        if not result.header or not any(item.line_total is not None for item in result.line_items):
+            raise ValueError("Extraction returned no usable invoice values.")
+        if existing_draft is None:
+            draft, *_ = await _persist_extraction(db, request_id, result)
         else:
-            draft = Draft(
-                draft_id=uuid.uuid4(),
-                request_id=request_id,
-                ai_label_visible=True,
-                extraction_status=ExtractionStatus.COMPLETE,
-                extracted_at=datetime.now(UTC),
-            )
-            db.add(draft)
-            await db.flush()
-
-        draft.source_invoices = [invoice.model_dump(mode="json") for invoice in result.source_invoices]
-
-        # ── Persist HeaderFields ───────────────────────────────────────────────
-        h = result.header
-        header = HeaderFields(
-            header_id=uuid.uuid4(),
-            draft_id=draft.draft_id,
-            voucher_name=h.voucher_name if h else None,
-            vendor_name=h.vendor_name if h else None,
-            invoice_number=h.invoice_number if h else None,
-            invoice_date=h.invoice_date if h else None,
-            currency=h.currency if h else None,
-            subtotal=h.subtotal if h else None,
-            total_amount=h.total_amount if h else None,
-            tax_amount=h.tax_amount if h else None,
-            fee_amount=h.fee_amount if h else None,
-            rounding_adj=h.rounding_adj if h else None,
-        )
-        db.add(header)
-
-        # ── Persist LineItems ──────────────────────────────────────────────────
-        for li in result.line_items:
-            partial_fields = [li.description, li.quantity, li.unit, li.unit_price, li.line_total]
-            ext_status = (
-                LineExtractionStatus.PARTIAL
-                if any(f is None for f in partial_fields)
-                else LineExtractionStatus.COMPLETE
-            )
-            db.add(
-                LineItem(
-                    line_item_id=uuid.uuid4(),
-                    draft_id=draft.draft_id,
-                    sequence_number=li.sequence_number,
-                    item_date=li.item_date,
-                    description=li.description,
-                    quantity=li.quantity,
-                    unit=li.unit,
-                    unit_price=li.unit_price,
-                    line_total=li.line_total,
-                    extraction_status=ext_status,
-                )
-            )
-
-        # ── Persist PaymentDetails ─────────────────────────────────────────────
-        pd = result.payment_details
-        db.add(
-            PaymentDetails(
-                payment_id=uuid.uuid4(),
-                draft_id=draft.draft_id,
-                bank_account_number=pd.bank_account_number if pd else None,
-                bank_name=pd.bank_name if pd else None,
-                payment_reference=pd.payment_reference if pd else None,
-            )
-        )
-        await db.flush()
-
-        # ── Telemetry ──────────────────────────────────────────────────────────
-        end_time = datetime.now(UTC)
-        duration_ms = int((end_time - start_time).total_seconds() * 1000)
-        await _record_telemetry(db, str(request_id), duration_ms)
-
-        # ── Audit: extraction completed ────────────────────────────────────────
-        db.add(
-            AuditEvent(
-                event_id=uuid.uuid4(),
-                request_id=request_id,
-                event_type=AuditEventType.STATUS_CHANGED,
-                actor_id=None,
-                payload={
-                    "action": "EXTRACTION_COMPLETE",
-                    "extraction_prompt_version": result.extraction_prompt_version,
-                    "duration_ms": duration_ms,
-                    "line_items_extracted": len(result.line_items),
-                },
-                occurred_at=end_time,
-            )
-        )
-
-        # ── Run validation + transition status ─────────────────────────────────
+            draft = existing_draft
+        await _record_telemetry(db, str(request_id), int((datetime.now(UTC) - start_time).total_seconds() * 1000))
         await _mark_ready_for_manual_review(db, request_id, draft)
         await db.commit()
 
 
 async def _mark_ready_for_manual_review(db: AsyncSession, request_id: uuid.UUID, draft: Draft) -> None:
     """Run all validators and set the request status accordingly."""
-    from sqlalchemy import update
+    from app.services.workflow import finish_extraction
 
-    new_status = RequestStatus.READY_FOR_REFINEMENT
-    await db.execute(
-        update(InvoiceRequest)
-        .where(InvoiceRequest.request_id == request_id)
-        .values(
-            status=new_status,
-            flags=[],
-            updated_at=datetime.now(UTC),
-        )
-    )
+    req = await db.scalar(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id).with_for_update())
+    if req.status in (RequestStatus.AMIGA_REVIEWED, RequestStatus.SENT_TO_CLIENT, RequestStatus.REJECTED):
+        return
+    previous = req.status.value
+    await finish_extraction(db, req)
+    req.updated_at = datetime.now(UTC)
     db.add(
         AuditEvent(
             event_id=uuid.uuid4(),
             request_id=request_id,
             event_type=AuditEventType.STATUS_CHANGED,
             actor_id=None,
-            payload={"from_status": "PROCESSING", "to_status": new_status.value},
+            payload={"from_status": previous, "to_status": req.status.value},
             occurred_at=datetime.now(UTC),
         )
     )

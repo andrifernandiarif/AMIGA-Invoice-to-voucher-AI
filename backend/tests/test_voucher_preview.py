@@ -50,8 +50,8 @@ _audit_module.AuditEvent.__table__.c["payload"].server_default = None
 
 # The disclaimer configured in settings
 _DISCLAIMER = (
-    "This voucher is prepared for client review purposes only. "
-    "Payment authorization remains with the client."
+    "Voucher ini disiapkan hanya untuk keperluan peninjauan oleh klien. "
+    "Otorisasi pembayaran tetap menjadi tanggung jawab klien."
 )
 
 

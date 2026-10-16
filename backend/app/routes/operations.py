@@ -4,19 +4,21 @@ import math
 import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.dependencies import get_db
-from app.permissions import require_permission
-from app.models.user import User, UserRole
 from app.models.audit import AuditEvent, AuditEventType
-from app.models.telemetry import TelemetryRecord
-from app.models.request import InvoiceRequest
 from app.models.client_assignment import ClientAssignment
-from app.routes.workspace import accessible_request
+from app.models.request import InvoiceRequest
+from app.models.telemetry import TelemetryRecord
+from app.models.user import User, UserRole
+from app.permissions import require_permission
 from app.repositories.user_repository import user_repository
+from app.routes.workspace import accessible_request
 from app.services.audit_service import log_event
 
 router = APIRouter(tags=["operations"])
@@ -136,7 +138,7 @@ async def metric_records(db, user):
         ids = (
             await db.scalars(
                 select(InvoiceRequest.request_id)
-                .join(ClientAssignment)
+                .join(ClientAssignment, ClientAssignment.client_id == InvoiceRequest.client_id)
                 .where(ClientAssignment.user_id == user.user_id, ClientAssignment.is_active.is_(True))
             )
         ).all()
@@ -146,7 +148,16 @@ async def metric_records(db, user):
         pdfs = (await db.scalars(select(VoucherPDF.voucher_pdf_id).where(VoucherPDF.request_id.in_(ids)))).all()
         allowed = {str(i) for i in [*ids, *jobs, *pdfs]}
         rows = (await db.scalars(stmt)).all()
-        return [r for r in rows if r.subject_id in allowed or r.metric_type.value == "PAGE_LOAD_DURATION"]
+        return [
+            r
+            for r in rows
+            if r.subject_id in allowed
+            or (
+                r.metric_type.value == "EXTRACTION_DOCUMENT_DURATION"
+                and r.subject_id.split("/document/", 1)[0] in allowed
+            )
+            or r.metric_type.value == "PAGE_LOAD_DURATION"
+        ]
     return (await db.scalars(stmt)).all()
 
 
@@ -194,10 +205,11 @@ async def retry_extraction(
     request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("upload"))
 ):
     from sqlalchemy import func
-    from app.models.draft import Draft
-    from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
+
     from app.models.audit import FieldRevision
+    from app.models.draft import Draft
     from app.models.extraction_job import ExtractionJob, ExtractionJobStatus
+    from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
     from app.models.request import RequestStatus
 
     req = await accessible_request(request_id, db, user, lock=True)
@@ -228,6 +240,7 @@ async def retry_extraction(
     job.started_at, job.completed_at = None, None
     previous = req.status.value
     req.status = RequestStatus.QUEUED
+    req.workflow_stage = None
     req.flags, req.validation_issues = [], []
     await log_event(
         db,

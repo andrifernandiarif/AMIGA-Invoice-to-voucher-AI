@@ -9,7 +9,7 @@ Requirement 6.3: Exception UX lists each missing Payment_Details field by name
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -56,6 +56,8 @@ async def test_completeness_all_fields_present(test_db: AsyncSession):
         extracted_at=datetime.now(timezone.utc),
     )
     test_db.add(draft)
+    await test_db.flush()
+    test_db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", invoice_date=date.today(), currency="USD", subtotal=0, total_amount=0))
     await test_db.flush()
 
     # Create payment details with all required fields
@@ -106,6 +108,8 @@ async def test_completeness_missing_payment_field(test_db: AsyncSession):
     )
     test_db.add(draft)
     await test_db.flush()
+    test_db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", invoice_date=date.today(), currency="USD", subtotal=0, total_amount=0))
+    await test_db.flush()
 
     # Create payment details with missing bank_account_number
     payment = PaymentDetails(
@@ -141,6 +145,8 @@ async def test_completeness_empty_payment_field(test_db: AsyncSession):
     )
     test_db.add(draft)
     await test_db.flush()
+    test_db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", invoice_date=date.today(), currency="USD", subtotal=0, total_amount=0))
+    await test_db.flush()
 
     # Create payment details with empty bank_name
     payment = PaymentDetails(
@@ -175,6 +181,8 @@ async def test_completeness_missing_line_item_field(test_db: AsyncSession):
         extracted_at=datetime.now(timezone.utc),
     )
     test_db.add(draft)
+    await test_db.flush()
+    test_db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", invoice_date=date.today(), currency="USD", subtotal=0, total_amount=0))
     await test_db.flush()
 
     # Create payment details (valid)
@@ -224,6 +232,8 @@ async def test_completeness_multiple_line_items(test_db: AsyncSession):
         extracted_at=datetime.now(timezone.utc),
     )
     test_db.add(draft)
+    await test_db.flush()
+    test_db.add(HeaderFields(draft_id=draft.draft_id, vendor_name="Vendor", invoice_number="INV-1", invoice_date=date.today(), currency="USD", subtotal=0, total_amount=0))
     await test_db.flush()
 
     # Create payment details (valid)

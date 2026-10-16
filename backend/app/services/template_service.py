@@ -1,11 +1,11 @@
 # backend/app/services/template_service.py
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.voucher import VoucherTemplate
@@ -19,9 +19,7 @@ async def load_active_template(db: AsyncSession) -> VoucherTemplate:
     Return the single VoucherTemplate row where is_active=True.
     Raises HTTPException(404) if no active template exists.
     """
-    result = await db.execute(
-        select(VoucherTemplate).where(VoucherTemplate.is_active.is_(True))
-    )
+    result = await db.execute(select(VoucherTemplate).where(VoucherTemplate.is_active.is_(True)))
     template = result.scalars().first()
     if template is None:
         raise HTTPException(
@@ -33,12 +31,10 @@ async def load_active_template(db: AsyncSession) -> VoucherTemplate:
 
 async def seed_default_template(db: AsyncSession) -> None:
     """
-    Idempotent: inserts the bundled voucher_default.html as version='v4.0-authorization'
+    Idempotent: inserts the bundled voucher_default.html as version='v5.0-corporate'
     with is_active=True only if no active template already exists.
     """
-    result = await db.execute(
-        select(VoucherTemplate).where(VoucherTemplate.is_active.is_(True))
-    )
+    result = await db.execute(select(VoucherTemplate).where(VoucherTemplate.is_active.is_(True)))
     if result.scalars().first() is not None:
         # An active template already exists — nothing to do.
         return
@@ -46,11 +42,11 @@ async def seed_default_template(db: AsyncSession) -> None:
     content = _DEFAULT_TEMPLATE_PATH.read_text(encoding="utf-8")
     template = VoucherTemplate(
         template_id=uuid.uuid4(),
-        version="v4.0-authorization",
+        version="v5.0-corporate",
         template_content=content,
         is_active=True,
         created_by=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(template)
     await db.flush()

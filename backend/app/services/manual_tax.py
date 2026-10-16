@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.models.invoice_fields import LineItem
 from app.models.tax_assignment import TaxAssignment
+from app.services.workflow import stage_of
 
 SOURCES = {
     "PPH21": "https://pajak.go.id/id/artikel/serba-serbi-ter-pph-pasal-21-pajak-baru-atau-formula-baru",
@@ -156,9 +157,13 @@ async def load_assignments(db, items):
     return {str(row.line_item_id): row for row in rows}
 
 
-async def refresh_assignments(db, draft_id):
-    items = (await db.execute(select(LineItem).where(LineItem.draft_id == draft_id))).scalars().all()
-    assignments = await load_assignments(db, items)
+async def refresh_assignments(db, draft_id, *, data=None):
+    items = (
+        data.items
+        if data is not None
+        else (await db.execute(select(LineItem).where(LineItem.draft_id == draft_id))).scalars().all()
+    )
+    assignments = data.taxes if data is not None else await load_assignments(db, items)
     for item in items:
         tax = assignments.get(str(item.line_item_id))
         if tax and not tax.base_is_manual:
@@ -180,11 +185,7 @@ def totals(req, header, items, assignments):
     withheld = sum((Decimal(str(t.tax_amount)) for t in assignments.values() if effect_of(t) == "DEDUCT"), Decimal("0"))
     fees = Decimal(str(header.fee_amount or 0)) if header else Decimal("0")
     rounding = Decimal(str(header.rounding_adj or 0)) if header else Decimal("0")
-    manual = (
-        getattr(getattr(req, "status", None), "value", None) == "READY_FOR_REFINEMENT"
-        or bool(getattr(req, "refinement_submitted_at", None))
-        or bool(assignments)
-    )
+    manual = stage_of(req) is not None or bool(getattr(req, "refinement_submitted_at", None)) or bool(assignments)
     total = base + added - withheld + fees + rounding if manual and base is not None else None
     if not manual:
         total = Decimal(str(header.total_amount)) if header and header.total_amount is not None else base

@@ -1,21 +1,23 @@
 """Organization directory and delegated account management."""
 
-import uuid
 import csv
 import io
+import uuid
 from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.dependencies import get_current_user, get_db
-from app.permissions import require_permission, permissions, ADMIN_ROLES, OPERATIONAL_ROLES
-from app.models.user import User, UserRole
+from app.models.audit import AuditEventType
 from app.models.client import Client
 from app.models.client_assignment import ClientAssignment
-from app.models.audit import AuditEventType
-from app.repositories.user_repository import user_repository, DuplicateUsernameError
-from app.schemas.user_schemas import CreateUserRequest, UserResponse, UpdateRoleRequest, AddAssignmentRequest
+from app.models.user import User, UserRole
+from app.permissions import ADMIN_ROLES, OPERATIONAL_ROLES, permissions, require_permission
+from app.repositories.user_repository import DuplicateUsernameError, user_repository
+from app.schemas.user_schemas import AddAssignmentRequest, CreateUserRequest, UpdateRoleRequest, UserResponse
 from app.services.audit_service import log_event
 from app.services.passwords import hash_password
 from app.services.signatures import normalize_signature
@@ -33,6 +35,8 @@ async def target_user(db, actor, user_id):
 
 
 def check_role(actor, role):
+    if role == UserRole.USER_ADMIN:
+        raise HTTPException(422, "User Admin has been consolidated into System Admin.")
     if actor.role.value != "SUPER_ADMIN" and role.value not in OPERATIONAL_ROLES:
         raise HTTPException(403, "Only Super Admin can grant administrative roles.")
 
@@ -71,28 +75,37 @@ async def directory(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(get_current_user),
 ):
-    if actor.role.value not in ("SUPER_ADMIN", "USER_ADMIN", "SERVICE_LEAD"):
+    if actor.role.value not in ("SUPER_ADMIN", "SYSTEM_ADMIN", "SERVICE_LEAD"):
         raise HTTPException(403, "User directory is unavailable for this role.")
     stmt = select(User).where(User.username.ilike(f"%{search}%")).order_by(User.username)
     if actor.role.value != "SUPER_ADMIN":
         stmt = stmt.where(User.role.in_([UserRole(r) for r in OPERATIONAL_ROLES]))
-    rows = (await db.scalars(stmt.offset(offset).limit(limit))).all()
-    result = []
-    for user in rows:
-        assignments = (
-            await db.scalars(
-                select(ClientAssignment).where(
-                    ClientAssignment.user_id == user.user_id, ClientAssignment.is_active.is_(True)
+    lead_clients = None
+    if actor.role.value == "SERVICE_LEAD":
+        lead_clients = select(ClientAssignment.client_id).where(
+            ClientAssignment.user_id == actor.user_id, ClientAssignment.is_active.is_(True)
+        )
+        stmt = stmt.where(
+            User.user_id.in_(
+                select(ClientAssignment.user_id).where(
+                    ClientAssignment.client_id.in_(lead_clients), ClientAssignment.is_active.is_(True)
                 )
             )
-        ).all()
-        if actor.role.value == "SERVICE_LEAD":
-            assignments = [
-                a for a in assignments if await user_repository.is_assignment_active(db, actor.user_id, a.client_id)
-            ]
-        result.append(
-            {**UserResponse.model_validate(user).model_dump(), "assignments": [a.client_id for a in assignments]}
         )
+    rows = (await db.scalars(stmt.offset(offset).limit(limit))).all()
+    assignment_stmt = select(ClientAssignment).where(
+        ClientAssignment.user_id.in_([u.user_id for u in rows]), ClientAssignment.is_active.is_(True)
+    )
+    if lead_clients is not None:
+        assignment_stmt = assignment_stmt.where(ClientAssignment.client_id.in_(lead_clients))
+    assignments = (await db.scalars(assignment_stmt)).all()
+    result = [
+        {
+            **UserResponse.model_validate(user).model_dump(),
+            "assignments": [a.client_id for a in assignments if a.user_id == user.user_id],
+        }
+        for user in rows
+    ]
     return result
 
 
@@ -102,7 +115,7 @@ async def create_user(
 ):
     check_role(actor, body.role)
     if body.assignments and "assignments" not in permissions(actor):
-        raise HTTPException(403, "Ask a Service Lead or Super Admin to assign companies after account creation.")
+        raise HTTPException(403, "Ask a System Admin or Super Admin to assign companies after account creation.")
     for assignment in body.assignments:
         await check_client(db, actor, assignment.client_id)
     encoded = hash_password(body.temporary_password)
@@ -203,9 +216,7 @@ async def import_csv(
             raise HTTPException(403, "You do not have permission to import company assignments.")
         prepared.append((number, values, role, client_ids))
 
-    existing = (
-        await db.scalars(select(User).where(User.username.in_(usernames)))
-    ).all()
+    existing = (await db.scalars(select(User).where(User.username.in_(usernames)))).all()
     if existing:
         raise HTTPException(409, f"Username '{existing[0].username}' is already taken.")
 

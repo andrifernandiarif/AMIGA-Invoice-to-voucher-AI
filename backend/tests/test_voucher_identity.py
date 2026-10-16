@@ -1,6 +1,7 @@
 """End-to-end voucher metadata, account signatures and company numbering."""
 # ruff: noqa: F811 - shared pytest fixture imported below
 
+from tests.pdf_fixtures import pdf_bytes
 import base64
 import io
 import uuid
@@ -110,7 +111,7 @@ async def test_metadata_refinement_then_freeze_and_render_multiple_approvers(db_
     data["uploader"].signature_data = None
     await db_session.commit()
     renderer = MagicMock()
-    renderer.HTML.return_value.write_pdf.return_value = b"%PDF-test"
+    renderer.HTML.return_value.write_pdf.return_value = pdf_bytes()
     async with await client_for(db_session, data["reviewer"]) as client:
         with (
             patch("app.routes.voucher.weasyprint", renderer),

@@ -20,9 +20,6 @@ import json
 import logging
 from uuid import UUID
 
-import boto3
-from botocore.config import Config
-
 from app.config import settings
 from app.providers.base import ExtractionProvider
 from app.schemas.extraction import ExtractionResult, InvoiceExtraction
@@ -96,6 +93,7 @@ EXTRACTION RULES:
 
 def _pdf_text(evidence_files):
     from io import BytesIO
+
     if not any(content_type == "application/pdf" for _, content_type in evidence_files):
         return []
     try:
@@ -222,14 +220,9 @@ class BedrockExtractionProvider(ExtractionProvider):
     """
 
     def __init__(self) -> None:
-        self._client = boto3.client(
-            "bedrock-runtime",
-            region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID or None,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY or None,
-            aws_session_token=settings.AWS_SESSION_TOKEN or None,
-            config=Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2, "mode": "standard"}),
-        )
+        from app.services.bedrock_runtime import create_client
+
+        self._client = create_client()
         self.model_id = settings.BEDROCK_MODEL_ID
         self._is_nova = "nova" in self.model_id.lower()
 
@@ -283,8 +276,12 @@ class BedrockExtractionProvider(ExtractionProvider):
         if not evidence_files:
             raise ValueError("Upload at least one invoice document.")
         semaphore = asyncio.Semaphore(3)
+        timings = [{} for _ in evidence_files]
 
-        async def extract_document(evidence):
+        async def extract_document(index, evidence):
+            import time
+
+            started = time.monotonic()
             async with semaphore:
                 raw = await asyncio.to_thread(self._invoke_sync, [evidence])
             raw = raw.strip()
@@ -301,6 +298,17 @@ class BedrockExtractionProvider(ExtractionProvider):
                 for invoice in invoices:
                     if invoice.header and not invoice.header.currency:
                         invoice.header.currency = _source_currency(evidence)
+                page_count = 1
+                if evidence[1] == "application/pdf":
+                    try:
+                        from io import BytesIO
+
+                        from pypdf import PdfReader
+
+                        page_count = len(PdfReader(BytesIO(evidence[0])).pages)
+                    except Exception:
+                        page_count = None
+                timings[index] = {"duration_ms": round((time.monotonic() - started) * 1000), "page_count": page_count}
                 return invoices
             except (ValueError, TypeError) as exc:
                 # Never replace a malformed response with a successful blank draft or log invoice contents.
@@ -309,10 +317,13 @@ class BedrockExtractionProvider(ExtractionProvider):
                     "The extraction service returned invalid invoice values. Please retry extraction."
                 ) from exc
 
-        documents = await asyncio.gather(*(extract_document(evidence) for evidence in evidence_files))
+        documents = await asyncio.gather(
+            *(extract_document(index, evidence) for index, evidence in enumerate(evidence_files))
+        )
         from app.services.combine_invoices import combine_invoices
 
         result = combine_invoices([invoice for document in documents for invoice in document])
+        result.document_timings = timings
         logger.info(
             "Extracted request %s: %d source invoices, %d voucher rows",
             request_id,

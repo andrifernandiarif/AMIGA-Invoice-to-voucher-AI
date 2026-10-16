@@ -16,12 +16,10 @@ import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.draft import Draft
-from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.validation.calculation import CalculationValidator
 from app.validation.completeness import CompletenessValidator
 from app.validation.duplicate import DuplicateDetector
@@ -62,6 +60,8 @@ class ValidationEngine:
         request_id: uuid.UUID,
         draft: Draft,
         db: AsyncSession,
+        *,
+        data=None,
     ) -> list[Flag]:
         """
         Run all validators and return a list of Flag objects.
@@ -83,22 +83,14 @@ class ValidationEngine:
         flags: list[Flag] = []
         tolerance = Decimal(settings.CALCULATION_TOLERANCE)
 
-        # Load header fields
-        header_result = await db.execute(
-            select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id)
-        )
-        header = header_result.scalar_one_or_none()
+        if data is None:
+            from app.services.invoice_data import load_invoice_data
 
-        # Load line items
-        line_items_result = await db.execute(
-            select(LineItem)
-            .where(LineItem.draft_id == draft.draft_id)
-            .order_by(LineItem.sequence_number)
-        )
-        line_items = line_items_result.scalars().all()
+            data = await load_invoice_data(request_id, db)
+        header, line_items = data.header, data.items
 
         # Run completeness validation (Requirement 5.3, 6.1, 6.2, 6.3)
-        completeness_result = await CompletenessValidator.validate(draft, db)
+        completeness_result = await CompletenessValidator.validate(draft, db, data=data)
         if not completeness_result.is_valid:
             flags.append(
                 Flag(
@@ -109,6 +101,20 @@ class ValidationEngine:
 
         # Run calculation validation (Requirement 7.1, 7.2, 7.3)
         calc_issues = CalculationValidator.validate(header, line_items, tolerance)
+        if len(draft.source_invoices or []) > 1:
+            # Combining invoices must not hide arithmetic issues in an individual source.
+            from app.schemas.extraction import InvoiceExtraction
+
+            for index, source in enumerate(draft.source_invoices, start=1):
+                invoice = InvoiceExtraction.model_validate(source)
+                for discrepancy in CalculationValidator.validate(invoice.header, invoice.line_items, tolerance):
+                    calc_issues.append(
+                        {
+                            **discrepancy,
+                            "field": f"source_invoices[{index}].{discrepancy['field']}",
+                            "invoice_number": invoice.header.invoice_number if invoice.header else None,
+                        }
+                    )
         if calc_issues:
             flags.append(
                 Flag(
@@ -118,9 +124,13 @@ class ValidationEngine:
             )
 
         # Run duplicate detection (Requirement 8.1, 8.2, 8.3)
-        if header and header.vendor_name and header.invoice_number:
+        if header or draft.source_invoices:
             matches = await DuplicateDetector.detect(
-                request_id, header.vendor_name, header.invoice_number, db
+                request_id,
+                header.vendor_name if header else None,
+                header.invoice_number if header else None,
+                db,
+                sources=draft.source_invoices,
             )
             if matches:
                 flags.append(
@@ -132,9 +142,16 @@ class ValidationEngine:
                                     "request_id": str(m.request_id),
                                     "status": m.status.value,
                                     "invoice_date": m.invoice_date.isoformat()
-                                    if m.invoice_date
-                                    else None,
-                                    "total_amount": str(m.total_amount) if m.total_amount else None,
+                                    if hasattr(m.invoice_date, "isoformat")
+                                    else m.invoice_date,
+                                    "total_amount": str(m.total_amount) if m.total_amount is not None else None,
+                                    "matched_sources": [
+                                        {
+                                            key: (str(value) if value is not None else None)
+                                            for key, value in source.items()
+                                        }
+                                        for source in m.matched_sources
+                                    ],
                                 }
                                 for m in matches
                             ]

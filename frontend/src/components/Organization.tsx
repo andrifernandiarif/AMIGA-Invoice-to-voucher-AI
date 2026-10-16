@@ -35,7 +35,7 @@ export default function Organization({ user }: { user: User }) {
 
   const roles =
     user.role === "SUPER_ADMIN"
-      ? [...operational, "SYSTEM_ADMIN", "USER_ADMIN", "SUPER_ADMIN"]
+      ? [...operational, "SYSTEM_ADMIN", "SUPER_ADMIN"]
       : operational;
   const manage = can(user, "users");
 
@@ -58,7 +58,7 @@ export default function Organization({ user }: { user: User }) {
 
   useEffect(() => {
     if (!can(user, "assignments")) return;
-    api<Client[]>(user.role === "SUPER_ADMIN" ? "/clients/all" : "/clients")
+    api<Client[]>(["SUPER_ADMIN", "SYSTEM_ADMIN"].includes(user.role) ? "/clients/all" : "/clients")
       .then(setClients)
       .catch((e) => setMessage(e.message));
   }, [user.role]);

@@ -8,11 +8,10 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased, load_only
 
-from app.permissions import require_permission
-from app.services.workload import overdue, today_wib, CLOSED
 from app.dependencies import get_current_user, get_db, require_role
 from app.models.audit import AuditEventType
 from app.models.client import Client
@@ -22,15 +21,19 @@ from app.models.evidence_file import EvidenceFile
 from app.models.extraction_job import ExtractionJob
 from app.models.invoice_fields import HeaderFields, LineItem, PaymentDetails
 from app.models.request import InvoiceRequest, RequestStatus
+from app.models.tax_assignment import TaxAssignment
 from app.models.telemetry import MetricType, TelemetryRecord
 from app.models.user import User
+from app.permissions import require_permission
 from app.repositories.request_repository import request_repository
 from app.repositories.user_repository import user_repository
 from app.schemas.request_schemas import FieldRevisionResponse
 from app.schemas.user_schemas import UserResponse
 from app.services.audit_service import log_event
 from app.services.extraction_status import describe_extraction
-from app.services.manual_tax import load_assignments, assignment_dict, totals, refresh_assignments
+from app.services.manual_tax import assignment_dict, refresh_assignments, totals
+from app.services.workflow import FINANCE_REVIEW, REFINEMENT, stage_of
+from app.services.workload import CLOSED, overdue, today_wib
 from app.storage import StorageError, file_store
 
 router = APIRouter(tags=["workspace"])
@@ -79,17 +82,39 @@ async def requests(
     )
     if user.role.value == "FINANCE_REVIEWER":
         stmt = stmt.where(
-            InvoiceRequest.status.in_(
-                [
-                    RequestStatus.READY_FOR_REVIEW,
-                    RequestStatus.AMIGA_REVIEWED,
-                    RequestStatus.SENT_TO_CLIENT,
-                    RequestStatus.REJECTED,
-                ]
+            or_(
+                and_(InvoiceRequest.status == RequestStatus.EXCEPTION, InvoiceRequest.workflow_stage == FINANCE_REVIEW),
+                InvoiceRequest.status.in_(
+                    [
+                        RequestStatus.READY_FOR_REVIEW,
+                        RequestStatus.AMIGA_REVIEWED,
+                        RequestStatus.SENT_TO_CLIENT,
+                        RequestStatus.REJECTED,
+                    ]
+                ),
             )
         )
     if user.role.value == "SUPER_ADMIN":
         stmt = select(InvoiceRequest, Client.client_name).join(Client).order_by(InvoiceRequest.created_at.desc())
+    stmt = stmt.options(
+        load_only(
+            InvoiceRequest.request_id,
+            InvoiceRequest.client_id,
+            InvoiceRequest.request_type,
+            InvoiceRequest.channel,
+            InvoiceRequest.request_date,
+            InvoiceRequest.status,
+            InvoiceRequest.workflow_stage,
+            InvoiceRequest.invoice_page_count,
+            InvoiceRequest.flags,
+            InvoiceRequest.validation_issues,
+            InvoiceRequest.due_date,
+            InvoiceRequest.assigned_reviewer,
+            InvoiceRequest.created_at,
+            InvoiceRequest.updated_at,
+            InvoiceRequest.refinement_submitted_at,
+        )
+    )
     if client_id:
         stmt = stmt.where(InvoiceRequest.client_id == client_id)
     if status:
@@ -104,12 +129,19 @@ async def requests(
         stmt = stmt.where(InvoiceRequest.due_date < today_wib(), InvoiceRequest.status.notin_(CLOSED))
     rows = (await db.execute(stmt)).all()
     reviewer_ids = {req.assigned_reviewer for req, _ in rows if req.assigned_reviewer}
-    reviewers = (await db.scalars(select(User).where(User.user_id.in_(reviewer_ids)))).all() if reviewer_ids else []
+    reviewers = (
+        (
+            await db.execute(select(User.user_id, User.full_name, User.username).where(User.user_id.in_(reviewer_ids)))
+        ).all()
+        if reviewer_ids
+        else []
+    )
     reviewer_names = {r.user_id: r.full_name or r.username for r in reviewers}
     return [
         {
             **fields(req, "request_id client_id request_type channel request_date status created_at updated_at"),
             "status": req.status.value,
+            "workflow_stage": stage_of(req),
             "flags": req.flags or [],
             "validation_issues": req.validation_issues or [],
             "due_date": req.due_date,
@@ -127,39 +159,71 @@ async def requests(
 async def detail(
     request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_permission("track"))
 ):
-    req = await accessible_request(request_id, db, user)
-    uploader = await db.get(User, req.uploader_id)
-    submitter = req.submitter_snapshot or {"full_name": uploader.full_name or "", "job_title": uploader.job_title or ""}
-    evidence = (
-        (
-            await db.execute(
-                select(EvidenceFile).where(EvidenceFile.request_id == request_id).order_by(EvidenceFile.upload_order)
-            )
-        )
-        .scalars()
-        .all()
+    granted = or_(
+        literal(user.role.value == "SUPER_ADMIN"),
+        exists().where(
+            ClientAssignment.client_id == InvoiceRequest.client_id,
+            ClientAssignment.user_id == user.user_id,
+            ClientAssignment.is_active.is_(True),
+        ),
     )
-    draft = (await db.execute(select(Draft).where(Draft.request_id == request_id))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(InvoiceRequest, User.full_name, User.job_title, granted)
+            .join(User, User.user_id == InvoiceRequest.uploader_id)
+            .where(InvoiceRequest.request_id == request_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(404, "Request not found.")
+    req, uploader_name, uploader_title, allowed = row
+    if not allowed:
+        raise HTTPException(403, "You are not authorized to access Requests for this client.")
+    submitter = req.submitter_snapshot or {"full_name": uploader_name or "", "job_title": uploader_title or ""}
+    earlier_request, earlier_draft = aliased(InvoiceRequest), aliased(Draft)
+    legacy_sources = exists(
+        select(literal(1))
+        .select_from(earlier_draft)
+        .join(earlier_request, earlier_request.request_id == earlier_draft.request_id)
+        .where(
+            earlier_request.client_id == req.client_id,
+            earlier_request.request_id != req.request_id,
+            earlier_request.status != RequestStatus.REJECTED,
+            func.json_array_length(earlier_draft.source_invoices) == 0,
+        )
+    )
+    # Related metadata is bounded by the upload limit and fetched in one round trip.
+    related = (
+        await db.execute(
+            select(Draft, HeaderFields, PaymentDetails, EvidenceFile, ExtractionJob, legacy_sources)
+            .select_from(InvoiceRequest)
+            .outerjoin(Draft, Draft.request_id == InvoiceRequest.request_id)
+            .outerjoin(HeaderFields, HeaderFields.draft_id == Draft.draft_id)
+            .outerjoin(PaymentDetails, PaymentDetails.draft_id == Draft.draft_id)
+            .outerjoin(EvidenceFile, EvidenceFile.request_id == InvoiceRequest.request_id)
+            .outerjoin(ExtractionJob, ExtractionJob.request_id == InvoiceRequest.request_id)
+            .where(InvoiceRequest.request_id == request_id)
+            .order_by(EvidenceFile.upload_order)
+        )
+    ).all()
+    draft, header, payment = related[0][:3] if related else (None, None, None)
+    evidence = list({r[3].evidence_id: r[3] for r in related if r[3] is not None}.values())
+    jobs = {r[4].job_id: r[4] for r in related if r[4] is not None}.values()
+    job = max(jobs, key=lambda j: (j.created_at, str(j.job_id)), default=None)
     data = None
     tax_data = {}
     total_data = None
     if draft:
-        header = (
-            await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
-        ).scalar_one_or_none()
-        items = (
-            (
-                await db.execute(
-                    select(LineItem).where(LineItem.draft_id == draft.draft_id).order_by(LineItem.sequence_number)
-                )
+        item_rows = (
+            await db.execute(
+                select(LineItem, TaxAssignment)
+                .outerjoin(TaxAssignment, TaxAssignment.line_item_id == LineItem.line_item_id)
+                .where(LineItem.draft_id == draft.draft_id)
+                .order_by(LineItem.sequence_number)
             )
-            .scalars()
-            .all()
-        )
-        payment = (
-            await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
-        ).scalar_one_or_none()
-        tax_map = await load_assignments(db, items)
+        ).all()
+        items = [row[0] for row in item_rows]
+        tax_map = {str(row[0].line_item_id): row[1] for row in item_rows if row[1] is not None}
         tax_data = {key: assignment_dict(value) for key, value in tax_map.items()}
         total_data = totals(req, header, items, tax_map)
         data = {
@@ -183,21 +247,63 @@ async def detail(
             ],
             "payment_details": fields(payment, "bank_account_number bank_name payment_reference") if payment else None,
         }
-    job = await db.scalar(
-        select(ExtractionJob).where(ExtractionJob.request_id == request_id)
-        .order_by(ExtractionJob.created_at.desc(), ExtractionJob.job_id.desc()).limit(1)
+    from app.services.manual_tax import SOURCES, TAX_OPTIONS
+
+    available_reviewers = None
+    if user.role.value in ("SUPER_ADMIN", "SERVICE_LEAD"):
+        from app.models.user import UserRole
+
+        available_reviewers = [
+            {"user_id": str(person.user_id), "name": person.full_name or person.username}
+            for person in (
+                await db.execute(
+                    select(User.user_id, User.full_name, User.username)
+                    .join(ClientAssignment, ClientAssignment.user_id == User.user_id)
+                    .where(
+                        ClientAssignment.client_id == req.client_id,
+                        ClientAssignment.is_active.is_(True),
+                        User.is_active.is_(True),
+                        User.role == UserRole.FINANCE_REVIEWER,
+                    )
+                    .order_by(User.username)
+                )
+            ).all()
+        ]
+    from app.validation.duplicate import invoice_identities, normalize
+
+    complete_identities = bool(draft and draft.source_invoices) and all(
+        normalize(identity.get("vendor_name")) and normalize(identity.get("invoice_number"))
+        for identity in invoice_identities(header, draft.source_invoices)
     )
+    coverage_note = (
+        None
+        if complete_identities or draft is None
+        else (
+            "Legacy source identities are unavailable; duplicate matching uses the current header and may be incomplete."
+            if draft and not draft.source_invoices
+            else "Some source invoice identities are missing; duplicate detection is incomplete."
+        )
+    )
+    if related and related[0][5]:
+        complete_identities = False
+        coverage_note = (
+            "Some earlier client requests lack source invoice identities; duplicate detection may be incomplete."
+        )
     return {
         "request_id": req.request_id,
+        "tax_options": [{**option, "source_url": SOURCES.get(option["tax_type"])} for option in TAX_OPTIONS],
+        "available_reviewers": available_reviewers,
         "extraction": describe_extraction(job),
         "client_id": req.client_id,
         "status": req.status,
+        "workflow_stage": stage_of(req),
         "flags": req.flags or [],
         "validation_issues": req.validation_issues or [],
         "due_date": req.due_date,
         "assigned_reviewer": req.assigned_reviewer,
         "overdue": overdue(req),
         "rejection_reason": req.rejection_reason,
+        "duplicate_detection_coverage": {"complete": complete_identities, "note": coverage_note},
         "draft": data,
         "tax_assignments": tax_data,
         "totals": total_data,
@@ -218,10 +324,19 @@ async def evidence(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("track")),
 ):
-    record = (await db.execute(select(EvidenceFile).where(EvidenceFile.file_key == file_key))).scalar_one_or_none()
-    if record is None:
+    row = (
+        await db.execute(
+            select(EvidenceFile, InvoiceRequest)
+            .join(InvoiceRequest, InvoiceRequest.request_id == EvidenceFile.request_id)
+            .where(EvidenceFile.file_key == file_key)
+        )
+    ).first()
+    if row is None:
         raise HTTPException(404, "Evidence not found.")
-    await accessible_request(record.request_id, db, user)
+    record, req = row
+    if not await user_repository.is_assignment_active(db, user.user_id, req.client_id):
+        raise HTTPException(403, "You are not authorized to access Requests for this client.")
+    await db.commit()  # Release the read transaction during S3 streaming.
     try:
         data = await file_store.download(record.file_key)
     except StorageError:
@@ -233,17 +348,18 @@ async def evidence(
 
 
 def ensure_editable(req, user):
-    if user.role.value == "SUPER_ADMIN":
-        if req.status not in (RequestStatus.READY_FOR_REFINEMENT, RequestStatus.READY_FOR_REVIEW):
-            raise HTTPException(409, "This request is not editable.")
-    elif user.role.value == "CLIENT_PIC":
-        if req.status != RequestStatus.READY_FOR_REFINEMENT:
-            raise HTTPException(409, "Client edits are available only before submission to Finance Review.")
-    elif user.role.value in ("FINANCE_REVIEWER", "SYSTEM_ADMIN"):
-        if req.status != RequestStatus.READY_FOR_REVIEW:
-            raise HTTPException(409, "This request is not awaiting finance review.")
-    else:
-        raise HTTPException(403, "You cannot edit this request.")
+    stage = stage_of(req)
+    role = user.role.value
+    if role == "SUPER_ADMIN" and stage:
+        return
+    if role == "CLIENT_PIC" and stage == REFINEMENT:
+        return
+    if role == "FINANCE_REVIEWER" and stage == FINANCE_REVIEW:
+        return
+    raise HTTPException(
+        409 if role in ("CLIENT_PIC", "FINANCE_REVIEWER", "SUPER_ADMIN") else 403,
+        "You cannot edit this request at its current workflow stage.",
+    )
 
 
 class FieldEdit(BaseModel):
@@ -256,7 +372,7 @@ async def edit(
     request_id: uuid.UUID,
     body: FieldEdit,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER", "SYSTEM_ADMIN")),
+    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
 ):
     req = await accessible_request(request_id, db, user, lock=True)
     ensure_editable(req, user)
@@ -396,6 +512,24 @@ async def telemetry(body: PageLoad, db: AsyncSession = Depends(get_db), user: Us
             duration_ms=body.duration_ms,
             is_breach=body.duration_ms > 2000,
             breach_threshold_ms=2000,
+            measured_at=datetime.now(UTC),
+        )
+    )
+    return {"recorded": True}
+
+
+@router.post("/telemetry/voucher-availability", status_code=201)
+async def voucher_availability(
+    body: PageLoad, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
+    db.add(
+        TelemetryRecord(
+            record_id=uuid.uuid4(),
+            metric_type=MetricType.VOUCHER_AVAILABILITY_DURATION,
+            subject_id=body.page,
+            duration_ms=body.duration_ms,
+            is_breach=body.duration_ms > 3000,
+            breach_threshold_ms=3000,
             measured_at=datetime.now(UTC),
         )
     )

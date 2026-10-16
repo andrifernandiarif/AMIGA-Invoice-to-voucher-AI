@@ -53,6 +53,7 @@ export interface Invoice {
   client_id: string;
   client_name: string;
   status: string;
+  workflow_stage?: "REFINEMENT" | "FINANCE_REVIEW" | null;
   flags: string[];
   validation_issues?: { flag_type: string; details: unknown }[];
   assigned_reviewer?: string | null;
@@ -90,6 +91,8 @@ export interface VoucherTotals {
   calculated_from_items: boolean;
 }
 export interface Detail {
+  tax_options?: TaxOption[];
+  available_reviewers?: {user_id: string; name: string}[] | null;
   extraction?: {
     status: "PENDING" | "IN_PROGRESS" | "DONE" | "FAILED";
     attempt: number;
@@ -104,12 +107,14 @@ export interface Detail {
   request_id: string;
   client_id: string;
   status: string;
+  workflow_stage?: "REFINEMENT" | "FINANCE_REVIEW" | null;
   flags: string[];
   validation_issues?: { flag_type: string; details: unknown }[];
   assigned_reviewer?: string | null;
   assigned_reviewer_name?: string | null;
   due_date?: string | null;
   overdue?: boolean;
+  duplicate_detection_coverage?: {complete: boolean; note: string | null};
   rejection_reason: string | null;
   tax_assignments?: Record<string, TaxAssignment>;
   totals?: VoucherTotals | null;
@@ -141,7 +146,7 @@ export const statusLabels: Record<string, string> = {
   PROCESSING: "Processing",
   READY_FOR_REFINEMENT: "Ready to refine",
   READY_FOR_REVIEW: "Submitted for review",
-  EXCEPTION: "Extraction issue",
+  EXCEPTION: "Needs attention",
   AMIGA_REVIEWED: "Approved",
   SENT_TO_CLIENT: "Sent to client",
   REJECTED: "Rejected",
@@ -151,4 +156,10 @@ export function can(user: User, permission: string): boolean {
   return (
     user.role === "SUPER_ADMIN" || !!user.permissions?.includes(permission)
   );
+}
+
+export function workflowStage(record: { status: string; workflow_stage?: string | null }) {
+  if (record.workflow_stage) return record.workflow_stage;
+  return record.status === "READY_FOR_REFINEMENT" ? "REFINEMENT" :
+    record.status === "READY_FOR_REVIEW" ? "FINANCE_REVIEW" : null;
 }

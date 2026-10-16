@@ -21,7 +21,7 @@ import logging
 import time
 import types
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import jinja2
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -48,12 +48,11 @@ from app.schemas.voucher_schemas import (
     VoucherPreviewResponse,
 )
 from app.services.audit_service import log_event
-from app.services.pdf_service import render_html_pdf
-from app.services.voucher_identity import prepare_voucher_identity
-from app.services.voucher_context import build_voucher_context
+from app.services.pdf_service import add_authorization_footer, render_html_pdf
 from app.services.template_service import load_active_template, seed_default_template
+from app.services.voucher_context import build_voucher_context
+from app.services.voucher_identity import prepare_voucher_identity
 from app.storage import StorageError, file_store
-
 
 # Module-level weasyprint reference.
 # We create a stub module as a placeholder so that `patch("app.routes.voucher.weasyprint")`
@@ -220,6 +219,10 @@ async def generate_voucher_pdf(
     current_user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
     regenerate: bool = False,
 ) -> dict:
+    return await _generate_voucher_pdf(request_id, db, current_user, regenerate=regenerate)
+
+
+async def _generate_voucher_pdf(request_id, db, current_user, regenerate=False, *, commit=True, invoice_data=None):
     """
     Full pipeline:
     1.  Status guard: request must be AMIGA_REVIEWED (HTTP 422 otherwise)
@@ -236,7 +239,8 @@ async def generate_voucher_pdf(
 
     Returns 201 with voucher_pdf_id, file_key, generated_at.
     """
-    # ── 0. Load request ───────────────────────────────────────────────────────
+    start_ms = int(time.monotonic() * 1000)
+    # ── 0. Load request
     result = await db.execute(select(InvoiceRequest).where(InvoiceRequest.request_id == request_id).with_for_update())
     req = result.scalar_one_or_none()
     if req is None:
@@ -277,41 +281,30 @@ async def generate_voucher_pdf(
     template = await load_active_template(db)
 
     # ── 4. Gather draft data ──────────────────────────────────────────────────
-    draft_result = await db.execute(select(Draft).where(Draft.request_id == request_id))
-    draft = draft_result.scalar_one_or_none()
-    if draft is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Voucher PDF generation failed. Please try again.",
-        )
+    if invoice_data is None:
+        from app.services.invoice_data import load_invoice_data
 
-    header_result = await db.execute(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
-    header = header_result.scalar_one_or_none()
-
-    line_items_result = await db.execute(
-        select(LineItem).where(LineItem.draft_id == draft.draft_id).order_by(LineItem.sequence_number)
+        invoice_data = await load_invoice_data(request_id, db)
+    draft, header, line_items, payment, tax_map = (
+        invoice_data.draft,
+        invoice_data.header,
+        invoice_data.items,
+        invoice_data.payment,
+        invoice_data.taxes,
     )
-    line_items = list(line_items_result.scalars().all())
-
-    payment_result = await db.execute(select(PaymentDetails).where(PaymentDetails.draft_id == draft.draft_id))
-    payment = payment_result.scalar_one_or_none()
-
-    # Load tax assignments for all line items
-    line_item_ids = [item.line_item_id for item in line_items]
-    tax_map: dict[str, TaxAssignment] = {}
-    if line_item_ids:
-        ta_result = await db.execute(select(TaxAssignment).where(TaxAssignment.line_item_id.in_(line_item_ids)))
-        for ta in ta_result.scalars().all():
-            tax_map[str(ta.line_item_id)] = ta
+    if draft is None:
+        raise HTTPException(409, "Extraction has not produced a usable draft.")
 
     # ── 5. Build Jinja2 context ───────────────────────────────────────────────
     disclaimer_text = settings.AUTHORIZATION_DISCLAIMER
 
     await prepare_voucher_identity(db, req)
-    context = build_voucher_context(req, header, line_items, payment, tax_map, disclaimer_text)
+    from app.models.client import Client
 
-    # ── Start timer (after data load, before render + PDF) ───────────────────
-    start_ms = int(time.monotonic() * 1000)
+    client = await db.get(Client, req.client_id)
+    context = build_voucher_context(
+        req, header, line_items, payment, tax_map, disclaimer_text, client=client, sources=draft.source_invoices
+    )
 
     try:
         # ── 6. Render HTML ────────────────────────────────────────────────────
@@ -322,7 +315,10 @@ async def generate_voucher_pdf(
         )
 
         # ── 7. Convert to PDF ─────────────────────────────────────────────────
+        # Reserve space independently of the selected template and stamp every page.
+        rendered_html += "<style>@page { margin-bottom:28mm !important; }</style>"
         pdf_bytes: bytes = await asyncio.to_thread(render_html_pdf, rendered_html, weasyprint)
+        pdf_bytes = await asyncio.to_thread(add_authorization_footer, pdf_bytes, disclaimer_text)
 
         # ── 8. Compute hashes ─────────────────────────────────────────────────
         disclaimer_hash = hashlib.sha256(disclaimer_text.encode()).hexdigest()
@@ -345,7 +341,7 @@ async def generate_voucher_pdf(
     duration_ms = end_ms - start_ms
 
     # ── 10. Persist VoucherPDF + AuditEvent (Req 15.6, 22.4) ─────────────────
-    generated_at = datetime.now(timezone.utc)
+    generated_at = datetime.now(UTC)
     try:
         voucher_record = VoucherPDF(
             voucher_pdf_id=voucher_pdf_id,
@@ -373,7 +369,8 @@ async def generate_voucher_pdf(
             actor_id=current_user.user_id,
         )
 
-        await db.commit()
+        if commit:
+            await db.commit()
 
     except Exception as exc:
         logger.error("Failed to persist VoucherPDF record for request %s: %s", request_id, exc)
@@ -396,10 +393,13 @@ async def generate_voucher_pdf(
             breach_threshold_ms=_PDF_SLA_MS,
             measured_at=generated_at,
         )
-        db.add(telemetry_record)
-        await db.commit()
+        # A savepoint keeps optional telemetry failures from rolling back approval.
+        async with db.begin_nested():
+            db.add(telemetry_record)
+            await db.flush()
+        if commit:
+            await db.commit()
     except Exception as exc:  # noqa: BLE001
-        await db.rollback()
         logger.warning("Telemetry write failed for voucher %s (best-effort): %s", voucher_pdf_id, exc)
 
     return {
@@ -503,7 +503,7 @@ async def download_voucher_pdf(
 
     if not preview and not already_sent and current_user.role.value == "CLIENT_PIC":
         # ── 5. Write VOUCHER_DOWNLOADED audit event (Req 16.1) ────────────────
-        downloaded_at = datetime.now(timezone.utc)
+        downloaded_at = datetime.now(UTC)
         await log_event(
             db,
             AuditEventType.VOUCHER_DOWNLOADED,

@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     # Business rules
     CALCULATION_TOLERANCE: str = "0.01"
     AUTHORIZATION_DISCLAIMER: str = (
-        "This voucher is prepared for client review purposes only. " "Payment authorization remains with the client."
+        "Voucher ini disiapkan hanya untuk keperluan peninjauan oleh klien. "
+        "Otorisasi pembayaran tetap menjadi tanggung jawab klien."
     )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

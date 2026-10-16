@@ -18,9 +18,9 @@ from app.models.invoice_fields import HeaderFields, LineItem
 from app.models.request import RequestStatus
 from app.models.tax_assignment import IndonesianTaxType, TaxAssignment
 from app.models.user import User
-from app.schemas.voucher_metadata import VoucherMetadata
 from app.repositories.request_repository import request_repository
 from app.routes.workspace import accessible_request, ensure_editable
+from app.schemas.voucher_metadata import VoucherMetadata
 from app.services.audit_service import log_event
 from app.services.manual_tax import (
     OPTIONS_BY_ID,
@@ -31,6 +31,7 @@ from app.services.manual_tax import (
     refresh_assignments,
     totals,
 )
+from app.services.workflow import FINANCE_REVIEW, REFINEMENT, stage_of
 
 router = APIRouter(tags=["refinement"])
 
@@ -53,7 +54,7 @@ async def assign_tax(
     item_id: uuid.UUID,
     body: TaxEdit,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER", "SYSTEM_ADMIN")),
+    user: User = Depends(require_role("CLIENT_PIC", "FINANCE_REVIEWER")),
 ):
     req = await accessible_request(request_id, db, user, lock=True)
     ensure_editable(req, user)
@@ -115,6 +116,7 @@ async def assign_tax(
     req.updated_at = datetime.now(UTC)
     await db.flush()
     from app.services.advisory_validation import validate_request
+
     await validate_request(db, req, user.user_id)
     return {"tax_assignment": new}
 
@@ -127,7 +129,7 @@ async def update_metadata(
     user: User = Depends(require_role("CLIENT_PIC")),
 ):
     req = await accessible_request(request_id, db, user, lock=True)
-    if req.status != RequestStatus.READY_FOR_REFINEMENT:
+    if stage_of(req) != REFINEMENT:
         raise HTTPException(409, "Upload details can only be changed before submitting for review.")
     old = {"voucher_purpose": req.voucher_purpose, "approvers": req.approvers}
     req.voucher_purpose = body.voucher_purpose
@@ -149,7 +151,7 @@ async def submit_review(
     request_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_role("CLIENT_PIC"))
 ):
     req = await accessible_request(request_id, db, user, lock=True)
-    if req.status != RequestStatus.READY_FOR_REFINEMENT:
+    if stage_of(req) != REFINEMENT:
         raise HTTPException(409, "This request is not awaiting client refinement.")
     if not req.voucher_purpose or not req.approvers:
         raise HTTPException(422, "Complete the expense purpose and external approvers before submitting.")
@@ -166,26 +168,28 @@ async def submit_review(
         raise HTTPException(422, str(exc))
     header = await db.scalar(select(HeaderFields).where(HeaderFields.draft_id == draft.draft_id))
     summary = totals(req, header, items, tax_map)
-    if summary["base_amount"] is None:
-        raise HTTPException(422, "Enter a line total for each item before submitting.")
-    if Decimal(summary["voucher_total"]) < 0:
-        raise HTTPException(422, "Withholding cannot make the voucher total negative.")
+    if header is None or not any(item.line_total is not None for item in items):
+        raise HTTPException(409, "Extraction has not produced a usable draft. Retry extraction first.")
+    previous_status = req.status.value
     req.submitter_snapshot = {
         "full_name": uploader.full_name,
         "job_title": uploader.job_title,
         "signature_data": uploader.signature_data or "",
     }
     from app.services.advisory_validation import validate_request
+
     await validate_request(db, req, user.user_id)
     req.refinement_submitted_at = datetime.now(UTC)
-    req.status = RequestStatus.READY_FOR_REVIEW
+    req.workflow_stage = FINANCE_REVIEW
+    req.status = RequestStatus.EXCEPTION if req.flags else RequestStatus.READY_FOR_REVIEW
     req.updated_at = req.refinement_submitted_at
     await log_event(
         db,
         AuditEventType.STATUS_CHANGED,
         payload={
-            "from_status": "READY_FOR_REFINEMENT",
-            "to_status": "READY_FOR_REVIEW",
+            "from_status": previous_status,
+            "to_status": req.status.value,
+            "workflow_stage": FINANCE_REVIEW,
             "action": "CLIENT_SUBMITTED_REFINEMENT",
             "totals": summary,
         },
@@ -193,4 +197,4 @@ async def submit_review(
         actor_id=user.user_id,
     )
     await db.flush()
-    return {"status": req.status, "totals": summary}
+    return {"status": req.status, "workflow_stage": req.workflow_stage, "totals": summary}

@@ -4,21 +4,23 @@ import argparse
 import asyncio
 import getpass
 import secrets
-from sqlalchemy import select
-from app.dependencies import AsyncSessionLocal
-from app.models.user import User, UserRole
-from app.models.client import Client
-from app.repositories.user_repository import user_repository
-from app.services.passwords import hash_password
-from app.services.audit_service import log_event
-from app.models.audit import AuditEventType
-from app.services.voucher_identity import default_client_code
 import uuid
+
+from sqlalchemy import select
+
+from app.dependencies import AsyncSessionLocal
+from app.models.audit import AuditEventType
+from app.models.client import Client
+from app.models.user import User, UserRole
+from app.repositories.user_repository import user_repository
+from app.services.audit_service import log_event
+from app.services.passwords import hash_password
+from app.services.voucher_identity import default_client_code
 
 DEMO_ROLES = {
     "demo_super_admin": "SUPER_ADMIN",
     "demo_system_admin": "SYSTEM_ADMIN",
-    "demo_user_admin": "USER_ADMIN",
+    "demo_user_admin": "SYSTEM_ADMIN",
     "demo_service_lead": "SERVICE_LEAD",
     "demo_finance": "FINANCE_REVIEWER",
     "demo_client_pic": "CLIENT_PIC",

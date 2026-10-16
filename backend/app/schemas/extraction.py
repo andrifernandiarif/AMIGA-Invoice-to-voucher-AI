@@ -57,6 +57,7 @@ class InvoiceExtraction(BaseModel):
 
 
 class ExtractionResult(InvoiceExtraction):
+    document_timings: list[dict] = Field(default_factory=list)
     source_invoices: list[InvoiceExtraction] = Field(default_factory=list)
     extraction_prompt_version: str = "unknown"
     raw_response: str | None = None  # model's raw JSON output for debugging
