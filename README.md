@@ -67,7 +67,7 @@ Versi Python yang tepat tidak didefinisikan di bagian ini; sesuaikan dengan envi
 ### 1. Clone repository
 
 ```bash
-git clone https://github.com/faryalhillan/amiga_robot_admin.git
+git clone https://github.com/andrifernandiarif/AMIGA-Invoice-to-voucher-AI.git
 cd amiga_robot_admin
 ```
 
