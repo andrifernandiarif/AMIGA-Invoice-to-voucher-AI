@@ -1,199 +1,197 @@
-# AMIGA invoice-to-voucher workspace
+# AMIGA Robot Admin
 
-A React frontend connected to the FastAPI extraction and review backend. Includes sign-in, a client-scoped request dashboard, multi-file evidence upload, side-by-side invoice review, editable draft fields, revision history, approval/rejection, and voucher preview/download.
+**AMIGA Robot Admin** adalah aplikasi web untuk membantu alur pemrosesan invoice vendor menjadi voucher dengan dukungan AI. Repository ini terdiri dari frontend React dan backend FastAPI.
 
-## Organization access and advisory validation
+> Status: versi awal (`0.1.0`). Konfigurasi layanan eksternal dan database perlu disiapkan sesuai environment masing-masing.
 
-Password login, delegated organization management, advisory validation, complete audit history, reviewer/deadline allocation, and performance views are implemented. See [login instructions, test roles, setup and acceptance walkthroughs](docs/organization-access.md). Local generated test credentials are in `backend/.env.demo-credentials`, excluded from Git. Temporary-password users must change their password before accessing the workspace.
+## Fitur utama
 
-Super Admin has unrestricted access, including self-approval. System Admin manages operational accounts/roles, company access, client settings and templates, without Finance correction or approval authority. Former User Admin accounts are migrated to System Admin. Service Lead manages reviewer/deadline allocation within assigned clients. Validation issues never block Finance approval: unresolved issues are snapshotted in the approval audit event.
+- **Invoice processing** — mendukung alur ekstraksi dan pemrosesan data invoice.
+- **Voucher management** — mendukung alur invoice-to-voucher.
+- **AI chat** — antarmuka percakapan untuk membantu workflow.
+- **Workspace dan refinement** — modul untuk pengelolaan workspace serta penyempurnaan hasil.
+- **Client, user, request, dan admin management** — endpoint backend untuk modul-modul administrasi.
+- **PDF generation** — backend menyertakan layanan rendering PDF.
+- **Background workers** — worker untuk ekstraksi dokumen dan indexing dijalankan saat aplikasi backend dimulai.
 
-## Run locally
+Ketersediaan detail dan akses setiap fitur bergantung pada konfigurasi aplikasi.
 
-Start the backend from its own directory so `.env` is loaded correctly:
+## Teknologi
 
-```sh
-cd backend
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m alembic upgrade head
-.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+| Bagian | Teknologi |
+|---|---|
+| Frontend | React 18, TypeScript, Vite |
+| Navigasi | React Router |
+| PDF di frontend | `react-pdf` |
+| Backend API | Python, FastAPI, Uvicorn |
+| Database | SQLAlchemy Async, PostgreSQL melalui `asyncpg` |
+| Database migration | Alembic |
+| AI / cloud integration | AWS SDK (`boto3`) |
+| Queue dan worker | RQ, Redis |
+| PDF dan dokumen | ReportLab, WeasyPrint, pypdf, Pillow |
+| Vector search support | `pgvector` |
+
+## Struktur repository
+
+```text
+amiga_robot_admin/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # Inisialisasi FastAPI, middleware, router, worker
+│   │   ├── routes/              # Endpoint API berdasarkan modul
+│   │   └── services/            # Layanan bisnis dan background worker
+│   └── requirements.txt         # Dependensi Python
+├── frontend/
+│   ├── src/                     # Source code React
+│   ├── package.json             # Script dan dependensi frontend
+│   └── ...
+├── test_invoices/                # Berkas invoice untuk pengujian
+├── test_bedrock.py               # Skrip pengujian terkait Bedrock
+└── .kiro/specs/invoice-to-voucher/ # Spesifikasi workflow
 ```
 
-Configure `backend/.env` with `DATABASE_URL`, S3 bucket/region and AWS credentials, and `JWT_SECRET`. Use `EXTRACTION_PROVIDER=mock` for the existing mock extraction provider, or configure Bedrock for live extraction. The application needs PostgreSQL and S3; the mock extraction provider does not replace these services. Existing active users need active client assignments. Voucher generation uses the active editable voucher template, or seeds the bundled template on the first approval. WeasyPrint's native dependencies must be installed.
+## Persyaratan
 
-On macOS, install the native PDF libraries once with `brew install pango`. The backend discovers the Homebrew library path automatically. `pydyf==0.10.0` is pinned for compatibility with WeasyPrint 62.3. See the [WeasyPrint installation guide](https://doc.courtbouillon.org/weasyprint/v62.3/first_steps.html) for other platforms.
+Pastikan perangkat pengembangan memiliki:
 
-Start the frontend in a second terminal:
+- Python yang kompatibel dengan dependensi backend.
+- Node.js dan npm.
+- PostgreSQL.
+- Redis.
+- AWS credentials dan izin layanan yang dibutuhkan apabila fitur AWS/Bedrock digunakan.
 
-```sh
+Versi Python yang tepat tidak didefinisikan di bagian ini; sesuaikan dengan environment deployment dan uji dependensi sebelum digunakan.
+
+## Menjalankan aplikasi secara lokal
+
+### 1. Clone repository
+
+```bash
+git clone https://github.com/faryalhillan/amiga_robot_admin.git
+cd amiga_robot_admin
+```
+
+### 2. Konfigurasi backend
+
+```bash
+cd backend
+python -m venv .venv
+```
+
+Aktifkan virtual environment:
+
+**Windows PowerShell**
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+```
+
+Instal dependensi:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Siapkan variabel environment untuk koneksi database, Redis, AWS, dan konfigurasi aplikasi lain yang diperlukan. Periksa file konfigurasi di `backend/app/` untuk mengetahui nama variabel yang benar; jangan memasukkan kredensial ke source code atau Git.
+
+Jalankan API dari direktori `backend`:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Backend berjalan secara default di `http://127.0.0.1:8000`.
+
+- Health check: `http://127.0.0.1:8000/health`
+- Dokumentasi API Swagger: `http://127.0.0.1:8000/docs`
+
+> Backend menginisialisasi worker ekstraksi dan indexing saat aplikasi dimulai. Pastikan layanan dan konfigurasi yang diperlukan tersedia. Untuk deployment multi-worker, evaluasi strategi worker agar pekerjaan tidak dijalankan berulang oleh setiap proses API.
+
+### 3. Konfigurasi dan jalankan frontend
+
+Buka terminal baru dari root repository:
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Vite proxies `/api` to the backend on port 8000. Sign in with an active username and password. Existing accounts without a password require a temporary-password reset by an authorized administrator; see the organization setup guide. For a built frontend, configure your reverse proxy to forward `/api/*` to the backend with the `/api` prefix stripped and serve `index.html` for frontend routes.
+Vite biasanya menjalankan frontend di `http://localhost:5173`.
 
-Roles control the workflow: Client PIC and Intake Support upload evidence; Client PIC refines extracted fields, assigns item taxes and submits for review; Finance Reviewer reviews, edits, approves or rejects; System Admin manages configuration and account access; Finance Reviewer, Service Lead and System Admin can read revisions. Acceptance automatically generates the voucher. Client PIC and Finance Reviewer can download the voucher and each evidence file separately. The server enforces client assignments and prevents self-approval except for Super Admin.
+Untuk memeriksa build production:
 
-## Workspace APIs
-
-The existing extraction, approval, rejection and voucher endpoints are supplemented by:
-
-- `GET /auth/me`: authenticated account information.
-- `GET /requests`: requests for active client assignments.
-- `GET /requests/{request_id}`: extracted draft and evidence metadata.
-- `GET /evidence/{file_key}`: authenticated evidence bytes.
-- `PUT /requests/{request_id}/fields`: typed field correction and revision/audit recording, with advisory discrepancy validation and persisted issues. Paths: `header.vendor_name`, `line_items.0.description` (zero-based display index), `payment.bank_name`.
-- `GET /requests/{request_id}/revisions`: ordered correction history for authorized roles.
-- `POST /telemetry/page-load`: authenticated, bounded page-load timing record.
-
-Client listing and uploads require active client assignments. Extraction creates a draft with `workflow_stage=REFINEMENT` for Client PIC. Validation flags set `EXCEPTION`; unflagged drafts use `READY_FOR_REFINEMENT`. Client PIC edits extracted fields and applies per-item taxes, then explicitly submits to Finance Reviewer. Submission changes the stage to `FINANCE_REVIEW`; flagged drafts remain `EXCEPTION`, unflagged drafts become `READY_FOR_REVIEW`, and Client PIC edits are locked. Finance can correct, approve or reject submitted exceptions. Finance Reviewers compare the submitted values and tax rows against evidence and accept or reject. The finance queue excludes unsubmitted drafts. Automated discrepancy, same-client duplicate, and missing-field checks produce advisory flags. Flags do not block acceptance and remain available in request history. Technical extraction failures without a usable draft remain retryable and cannot generate an empty voucher. Duplicate detection compares each normalized vendor/invoice identity within the client, including overlapping single/combined requests; warnings link to existing requests and source invoices. Legacy identity coverage is explicitly described as incomplete.
-
-Acceptance generates and stores a PDF using the active template in the approval transaction. Rendering or S3 failures leave the request awaiting review. Downloads fetch the already generated PDF; evidence is downloaded independently via `GET /evidence/{file_key}?download=true`. Only a Client PIC voucher download records delivery to the client.
-
-System Admins can use the **Voucher templates** screen to import/edit HTML and activate a new named version. Template changes affect future approvals; generated vouchers preserve their original PDF and template version. `GET /admin/templates` lists versions and the bundled default; `POST /admin/templates` saves and activates a version.
-
-## Voucher layout
-
-The versioned `v5.0-corporate` Indonesian default uses restrained teal styling, dynamic client/vendor/invoice/payment sections, an emphasized calculated voucher total and distinct extracted invoice nominal. Empty optional fields/sections are hidden; essential missing information is stated explicitly. Submitter and external client signature blocks preserve their original meaning. The submitter’s optional uploaded signature is included; external approver signature spaces remain empty. A renderer-owned notice appears on every PDF page regardless of custom template conditions; the default notice is Indonesian, and configured notice text is respected. Custom templates and historical PDFs are preserved.
-
-Client PIC can correct extracted name/item fields and upload metadata during refinement; Finance Reviewer can correct submitted extracted values during review. Voucher number and creation datetime are generated by the backend. Purpose and external approvers are captured at upload. Nominal shows the extracted/reviewed document total; the bottom TOTAL uses item amounts plus assigned tax rows, fees and rounding, minus explicit withholding. Extracted header tax is not added a second time. Amounts use Indonesian separators.
-
-The preview displays the actual PDF using `GET /requests/{request_id}/voucher-pdf?preview=true`, which does not record a client delivery. Authorized regeneration uses `POST /requests/{request_id}/voucher-pdf?regenerate=true`, preserves previous PDFs, and keeps the approval/delivery state unchanged. Template changes normally affect future vouchers; existing vouchers can be regenerated explicitly.
-
-## Manual item tax assignment
-
-Each extracted item has one tax dropdown. It includes PPh 21, PPh 22, PPh 23, PPh 26, PPh 4(2) and PPN, with labelled transaction-specific presets and manual effective-rate/base options. Tax defaults to an additional voucher cost as requested; choose **Potong dari pembayaran** explicitly to treat it as withholding. Tax rows appear immediately after their source item. Rates and money use Decimal arithmetic; taxes round to two decimal places with half-up rounding. When quantity/unit price changes, the item total and automatic tax base are recalculated. A manual tax base remains fixed.
-
-DJP references checked on 15 October 2026: [PPh 21/TER](https://pajak.go.id/id/artikel/serba-serbi-ter-pph-pasal-21-pajak-baru-atau-formula-baru), [PPh 22](https://www.pajak.go.id/id/pph-pasal-22), [PPh 23/26](https://pajak.go.id/id/pph-pasal-2326), [PPh 4(2)](https://pajak.go.id/id/pemotongan-pajak-penghasilan-pasal-4-ayat-2-3), and [PPN DPP rules](https://pajak.go.id/index.php/id/siaran-pers/pemerintah-terbitkan-aturan-dpp-nilai-lain-dan-besaran-tertentu-ppn). PPh 25 is not offered for invoice items: it is an [income-tax instalment](https://www.pajak.go.id/id/artikel/angsuran-pph-pasal-25-mengapa-pajak-dibayar-setiap-bulan). These are manual assignments, not an automatic determination of legal applicability, TER brackets, exemptions or treaty eligibility. Choose the manual option for other rates or historical periods.
-
-- `GET /tax-options`: authenticated preset catalogue, notes and DJP links.
-- `PUT /requests/{request_id}/items/{item_id}/tax`: apply/remove one tax assignment; body contains `profile`, optional `rate_percent`, optional `base_amount` override, and `effect` (`ADD` / `DEDUCT`). The server computes the amount.
-- `POST /requests/{request_id}/submit-review`: Client PIC submits saved refinements and taxes. Finance approval/rejection are unavailable before submission. Assignment/field revisions and submission actors are recorded.
-
-Migrations 0007–0008 add the refinement stage and explicit tax parameters, and move existing unapproved pending requests to Client PIC refinement. Already approved vouchers retain their original content and history.
-
-## Updating an already running workspace
-
-Run `alembic upgrade head` from `backend` after updating the code. Migration `0004` restores evidence metadata for older uploads from their audit history and moves successfully extracted legacy exception drafts into manual review. Original S3 files and audit events are retained; requests without a successfully extracted draft remain processing failures.
-
-Restart any backend started without `--reload`. `GET /health` should return `"workflow": "organization-v4"`; if that marker is absent, an older process is still serving port 8000. The frontend proxy's `/api/health` should return the same marker.
-
-## Checks
-
-```sh
-cd frontend
+```bash
 npm run build
+npm run preview
+```
+
+Untuk menjalankan test frontend:
+
+```bash
 npm test
 ```
 
-```sh
-cd backend
-.venv/bin/python -m pytest -q
+Frontend perlu diarahkan ke URL backend sesuai mekanisme konfigurasi API yang digunakan oleh source code. Periksa konfigurasi frontend sebelum menetapkan environment variable; nama variabel tidak diasumsikan di README ini.
+
+## API dan health check
+
+Backend menyediakan endpoint health check:
+
+```http
+GET /health
 ```
 
-Backend tests use isolated SQLite databases and mock external extraction/storage services; they do not require production credentials. Live S3, Bedrock and native PDF rendering need a configured environment for end-to-end verification.
+Contoh respons:
 
-## Voucher information and signatures (schema v3)
-
-Run migration `0009` with `alembic upgrade head`. It adds company codes and counters, request purpose/approvers and generated identity, and account full name, professional role and optional signature. It activates the editable `v3.0-id` template for future generations; stored PDF versions remain unchanged.
-
-- **Nomor:** `<client_code>-<sequence>`, starting at 1 independently for each company. The counter is allocated atomically in the PDF transaction. Failed generation rolls back numbering and approval; regeneration reuses the number and original creation datetime. Existing generated requests count once, regardless of how many PDF versions they have.
-- **Nama:** extracted `voucher_name`, falling back to the extracted vendor; correct it during refinement if necessary.
-- **Peruntukan:** required upload purpose, stored separately from extracted data.
-- **Tanggal/Periode:** first voucher creation datetime, displayed in Asia/Jakarta (WIB); invoice and line dates remain separate extracted values.
-- **Nominal:** extracted/reviewed document total. The table's bottom TOTAL is calculated from items and explicitly assigned taxes/fees/rounding. Tax rows remain visible separately.
-- **Diajukan Oleh:** the uploader's account full name, professional role and optional PNG/JPEG signature. These are snapshotted when Client PIC submits for review and preserved for regeneration. A missing signature leaves an empty signature space.
-- **Disetujui Oleh:** one or more external client approvers supplied at upload, each with full name and professional role (for example BOD or Manager). Each gets an empty signature space. Finance review does not fill or sign these external approval blocks.
-
-Complete **Your account** before uploading if an existing account has no full name or professional role. Super Admin and System Admin can use **People & assignments** to create accounts with these fields. Super Admin or System Admin grants client assignments. Users can add optional signatures in **Your account**. The professional role is independent of the system access role. Missing historical personal/approver details are never invented. Existing drafts can complete upload details during refinement before submitting.
-
-API additions:
-
-- `POST /clients` accepts an optional unique uppercase `client_code` (letters, digits and hyphens, maximum 40 characters). Omitted codes are generated deterministically from company name and ID. `GET /clients` returns codes for assigned companies; admin-only `GET /clients/all` supplies the account creation client selector.
-- `POST /users` requires `full_name` and `job_title` alongside username, system role and assignments. Optional `signature_data` is a PNG/JPEG base64 data URL (under 2 MB, at most 4 megapixels), decoded and normalized to PNG. Images are excluded from user responses and audit payloads.
-- `GET /users/me/profile` / `PUT /users/me/profile` read/update the current user's profile. To remove a signature, send `remove_signature: true` without replacement data. Changes apply to future submissions; submitted vouchers keep their snapshot.
-- Multipart `POST /requests` requires `voucher_purpose` and `approvers` (a JSON array of `{full_name, job_title}`, 1–12 people).
-- `PUT /requests/{id}/voucher-metadata` accepts `{voucher_purpose, approvers}` during Client PIC refinement only. Submission freezes this metadata; generated number/date cannot be overridden through extracted-field editing.
-- Request detail exposes purpose, approvers, generated voucher number/date and submitter name/title, without returning signature image data.
-
-Templates support `submitter.full_name`, `submitter.job_title`, optional `submitter.signature_data` and the `approvers` loop (each person's `full_name` and `job_title`), alongside existing voucher/item variables. The default voucher has no AI-related messages.
-
-## Amiga AI and Telegram
-
-Install the updated backend dependencies, then run `alembic upgrade head`. Migration `0010` enables `vector` on PostgreSQL/Neon and creates `chunk_embeddings` with a `vector(1024)` column, JSONB metadata, a unique `(request_id, chunk_type)` constraint and an IVFFlat cosine index. **Titan V2 uses 1024 dimensions here, not 1536**: [AWS documents 1024/512/256 for V2](https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html). Titan G1's 1536-dimensional embeddings are incompatible with this schema.
-
-Configure `TITAN_EMBED_MODEL_ID=amazon.titan-embed-text-v2:0`. `TITAN_EMBED_REGION` normally falls back to `AWS_REGION`; the local `.env` uses Sydney (`ap-southeast-2`) because [Titan V2 is unavailable in Singapore](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-supported.html). Extraction, answer generation and S3 continue using the existing region/settings. The runtime identity needs Bedrock InvokeModel access to the embedding model in the embedding region and Converse access to `BEDROCK_MODEL_ID` in `AWS_REGION`. No credentials or token values are included in the tracked example configuration.
-
-The shared async entry point is `app.services.rag_service.ask(question, user, db, request_id=None)`. It returns a string with `chunks_used`, authorized `sources`, `coverage`, and `has_more_items` attributes for API callers. An optional keyword-only `item_page` selects a zero-based page of 40 line items. Both the JWT-authenticated web endpoint and Telegram call this function. Search filters by active client assignments before applying its limit, and the service checks the live relational assignment again before sending any context to Nova. System administrators also require a client assignment for retrieval; Super Admin has global access. Request-scoped questions outside the caller's assignments return 404 without invoking Bedrock.
-
-Each indexed request has four bounded chunks: `HEADER`, `LINE_ITEMS`, `PAYMENT`, and `TAX_SUMMARY`. All contain request/client IDs, vendor, invoice number and status metadata. Signature images are excluded. Large records are explicitly marked as truncated. Embeddings are written atomically; repeated indexing updates the same rows. Answers reload the selected requests from live database records rather than using indexed text, so invoice revisions and download/delivery status changes are reflected immediately. Retrieval is semantic, not an exhaustive report: the generator must not claim an invoice is the latest or produce a global count without sufficient context.
-
-Finance approval saves an `indexing_jobs` outbox row atomically with the approval and PDF. Embedding runs in a background worker, outside the response and without holding a database connection. Jobs coalesce by request, retry with backoff up to five attempts, and recover expired five-minute RUNNING leases after restart. Failures never undo a saved approval. The API starts the worker automatically; an independent process can use `python -m scripts.run_indexing_worker`. Migration `0014` queues approved requests with missing/partial indexes. The backfill script retries approved/delivered requests that have no embeddings, with 100 ms between requests:
-
-```sh
-cd backend
-.venv/bin/python -m scripts.backfill_embeddings
-# Also repair partially indexed requests (fewer than four chunks):
-.venv/bin/python -m scripts.backfill_embeddings --retry-partial
+```json
+{
+  "status": "ok",
+  "workflow": "organization-v4"
+}
 ```
 
-The default approval hook and backfill index `AMIGA_REVIEWED` / `SENT_TO_CLIENT` records. They do not populate unapproved `EXCEPTION` requests. Amiga AI can still answer questions about these requests from authorized live database context without requiring embeddings.
+Daftar route lain didaftarkan dari modul backend, termasuk operasi, chat, workspace, refinement, authentication, clients, users, requests, admin, dan voucher. Gunakan Swagger UI (`/docs`) untuk melihat path, parameter, dan skema request terbaru.
 
-The frontend provides **Amiga AI** through a floating button throughout the signed-in workspace for users with chat permission. The accessible modal retains conversation and drafts while closed, and clears them on scope changes or logout. Legacy `/chat?request_id=…` links open the modal; request pages default to their current request. Each question is independent; include a company name/code or invoice number when asking follow-up questions. Answers show source links, coverage, retry support, and next-page controls for large invoices. The interface uses the authenticated API below.
+## Pengujian
 
-Retrieval resolves explicit identifiers within the authorized scope, uses vector matches only to discover request IDs, and builds answers from live company, invoice, tax, and workflow records, including requests that have not been approved or indexed. It loads at most five requests per answer and reports partial coverage. Audit timelines use the latest 50 allowlisted request milestones, in chronological order, and require the separate `history` permission. Raw audit payloads and internal error details are excluded. Missing historical events are explicitly described as incomplete evidence. Unmatched and inaccessible explicit targets receive the same authorization/not-found message. The service rechecks scope after loading context and before generation. Embedding outages fall back to live records; answer-model outages return a retryable 503.
+Repository menyediakan direktori `test_invoices/` dan skrip `test_bedrock.py` untuk membantu pengujian. Sebelum menjalankan pengujian yang terhubung ke layanan eksternal:
 
-`POST /chat` keeps `{ "message": "…", "request_id": "optional UUID" }`; optional `item_page` defaults to 0. Responses retain `answer` and `chunks_used`, and may include `sources` (request/company IDs and labels), `coverage`, and `has_more_items`. To continue line items, resend the question with a source request ID and the next `item_page`.
+1. Pastikan konfigurasi environment telah benar.
+2. Gunakan dokumen uji yang tidak berisi data sensitif.
+3. Pastikan kredensial AWS dan akses layanan tersedia bila diperlukan.
+4. Verifikasi hasil ekstraksi dan voucher sebelum menggunakannya untuk proses bisnis.
 
-The web API accepts operational roles, System Admin and Super Admin with a valid unrestricted JWT. User Admin has been retired:
+## Keamanan
 
-```sh
-curl http://localhost:8000/chat \
-  -H "Authorization: Bearer $INVOICE_ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"What is the invoice number and current status?"}'
-```
+- Simpan secret dan kredensial di environment atau secret manager.
+- Jangan commit file `.env`, kredensial AWS, atau invoice asli yang berisi informasi rahasia.
+- Batasi CORS ke origin frontend yang benar untuk setiap environment. Konfigurasi backend saat ini mengizinkan `http://localhost:5173`; sesuaikan sebelum deployment.
+- Gunakan HTTPS dan autentikasi yang sesuai saat aplikasi dipublikasikan.
+- Validasi hasil AI dan dokumen invoice sebelum dijadikan dasar transaksi atau pencatatan akuntansi.
 
-Optional body field `request_id` scopes retrieval to one UUID. Response: `{"answer":"...","chunks_used":4}`. Empty/overlong questions return 422; upstream failures return a generic 503 without disclosing SDK errors or invoice data in logs. No retrieved context means no answer-model call.
+## Troubleshooting
 
-For Telegram, privately add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_MAP` to `backend/.env`. The map is JSON, such as `{"123456789":"SYSTEM_USER_UUID"}`; replace both values with the actual private chat ID and the user's UUID from `/auth/me`. Only mapped private chats with an active user are accepted, and every question still checks current client assignments. Run the bot as a separate process:
+| Masalah | Pemeriksaan |
+|---|---|
+| Frontend tidak bisa mengakses API | Periksa URL backend, CORS, dan apakah API sedang berjalan. |
+| API gagal dimulai | Periksa dependensi, environment variable, dan koneksi database/Redis. |
+| Proses invoice tidak berjalan | Periksa log backend, worker ekstraksi, akses penyimpanan, dan konfigurasi AI. |
+| PDF gagal dibuat | Periksa dependensi sistem yang dibutuhkan WeasyPrint serta log rendering. |
+| Integrasi AWS gagal | Periksa AWS credentials, region, IAM permissions, dan akses layanan/model yang digunakan. |
 
-```sh
-cd backend
-.venv/bin/python -m telegram_bot.bot
-```
+## Kontribusi
 
-The bot handles `/start` and free text, sends plain-text replies, and splits long messages. The FastAPI process never starts Telegram polling. No real Telegram token or chat mapping is provisioned automatically.
+1. Buat branch untuk perubahan.
+2. Jelaskan tujuan dan dampak perubahan.
+3. Jalankan build dan pengujian yang relevan.
+4. Buat pull request dengan ringkasan perubahan dan langkah verifikasi.
 
-Tests mock Bedrock and Telegram; PostgreSQL vector operations also have an opt-in integration test using the configured database. Synthetic integration chunks are rolled back:
+## Lisensi
 
-```sh
-cd backend
-.venv/bin/pytest -q
-RUN_PGVECTOR_INTEGRATION=1 .venv/bin/pytest -q tests/test_vector_store_integration.py
-```
-
-For a small initial corpus the IVFFlat index has one list to preserve recall. As the corpus grows, rebuild it with an appropriate list count and run `ANALYZE`; see the [pgvector index guidance](https://github.com/pgvector/pgvector#ivfflat).
-
-## Combining multiple invoices into one voucher
-
-Upload the source PDFs together in one request. Bedrock extracts each source independently; the backend combines distinct invoices with Decimal arithmetic. Combined vouchers retain each invoice number/date on its items and include printed freight, fuel surcharges, taxes and rounding as separate payable rows. Those amounts are already included in the item subtotal and are not added again through the header or automatic Indonesian tax presets. Original source headers remain available in the request detail under `draft.source_invoices`.
-
-Duplicate copies/pages with the same vendor and invoice number are consolidated; conflicting copies and mixed currencies fail explicitly rather than producing a misleading combined amount. Invalid model output is retried as a processing failure instead of becoming a successful empty draft. Migration `0013` adds source invoice snapshots.
-
-Client PIC, Intake Support and Super Admin can use **Retry extraction** (`POST /requests/{id}/retry-extraction`) for failed requests or older empty drafts. Existing extracted/edited/submitted values are protected from replacement. Original evidence and upload metadata are reused, and the retry is audited.
-
-
-## Extraction and database connection recovery
-
-The API checks pooled PostgreSQL connections before reuse, recycles them after 240 seconds, and bounds connection/query waits. `DB_CONNECT_TIMEOUT_SECONDS` (10), `DB_COMMAND_TIMEOUT_SECONDS` (30), and `DB_POOL_RECYCLE_SECONDS` (240) can be set in `backend/.env`. A disconnected initial authentication read is rolled back and retried once before any endpoint writes run. Continued connection failures return HTTP 503 with a retry message; uploads, approvals, and other write operations are never automatically replayed.
-
-Extraction reads evidence metadata in a short transaction, releases its database session while downloading from S3 and calling Bedrock, then opens a fresh transaction to save the result. S3 streaming reads run off the event loop. Internal PDF document names use Bedrock-compatible characters, independently of the original upload filenames. The optional RQ worker uses the same connection setup and avoids sharing asyncpg connections between its event loops.
-
-After updating, restart the backend using the interpreter in `backend/.venv`. If an older extraction failed with `No module named 'pypdf'`, install `backend/requirements.txt` into that same environment and use **Retry extraction** on the failed request. No new database migration is required for these connection/extraction fixes.
-
-
-First uploads retry failed extraction attempts automatically, using the same saved evidence, up to three attempts. Request detail includes safe `extraction` progress (`status`, `attempt`, `max_attempts`, `message`) so the workspace distinguishes automatic retry progress from a final failure. Local PDF text extraction is optional for Bedrock: when the worker cannot import `pypdf`, the original PDF document bytes are still sent to the model. `pypdf` remains a required installation dependency for upload page counting. A successful retry clears the previous worker error and preserves one draft.
-
-See [demo workflow rollout and measured performance](docs/demo-workflow-rollout.md) for migration details, verification and remaining timing breaches.
+Lisensi belum dicantumkan dalam informasi repository yang diperiksa. Pastikan ketentuan lisensi ditetapkan sebelum mendistribusikan atau menggunakan project ini secara komersial.
